@@ -218,8 +218,6 @@ static bool SCSI_Command_Inquiry(USB_ClassInfo_MS_Device_t* const MSInterfaceInf
  */
 static bool SCSI_Command_Request_Sense(USB_ClassInfo_MS_Device_t* const MSInterfaceInfo)
 {
-	if (!SCSI_CheckUnitReady(MSInterfaceInfo)) return false;
-
 	uint8_t  AllocationLength = MSInterfaceInfo->State.CommandBlock.SCSICommandData[4];
 	uint8_t  BytesTransferred = MIN(AllocationLength, sizeof(SenseData));
 
