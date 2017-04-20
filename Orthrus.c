@@ -31,6 +31,7 @@
 #include <LUFA/Platform/Platform.h>
 
 #include "Orthrus.h"
+#include "SCSI.h"
 #include "AES.h"
 #include "sd.h"
 #include "Descriptors.h"
