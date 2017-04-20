@@ -72,11 +72,9 @@ void init_spi(void) {
 
 static uint8_t SPI_byte(uint8_t data) {
 	uint8_t out;
-	//ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-		SPDR = data;
-		while(!(SPSR & _BV(SPIF)));
-		out = SPDR;
-	//}
+	SPDR = data;
+	while(!(SPSR & _BV(SPIF)));
+	out = SPDR;
 	return out;
 }
 
@@ -271,9 +269,16 @@ uint8_t volumeReadBlock(uint32_t blocknum) {
 			if (Endpoint_WaitUntilReady())
 				return 1;
 		}
-		for(int j = 0; j < MASS_STORAGE_IO_EPSIZE; j++) {
-			Endpoint_Write_8(encrypt_CTR_byte(SPI_byte(0xff)));
+		SPDR = 0xff; // write the initial (garbage) byte to kick it off
+		for(int j = 0; j < MASS_STORAGE_IO_EPSIZE - 1; j++) {
+			while(!(SPSR & _BV(SPIF))) ; // wait for it
+			uint8_t readByte = SPDR;
+			SPDR = 0xff; // start the next one right away in the background.
+			Endpoint_Write_8(encrypt_CTR_byte(readByte));
 		}
+		while(!(SPSR & _BV(SPIF))) ; // wait for the last one.
+		uint8_t readByte = SPDR;
+		Endpoint_Write_8(encrypt_CTR_byte(readByte));
 	}
 
 	SPI_byte(0xff); // CRC
@@ -309,9 +314,15 @@ uint8_t volumeWriteBlock(uint32_t blocknum) {
 			if (Endpoint_WaitUntilReady())
 				return 1;
 		}
-		for(int j = 0; j < MASS_STORAGE_IO_EPSIZE; j++) {
-			SPI_byte(encrypt_CTR_byte(Endpoint_Read_8()));
+		uint8_t value = encrypt_CTR_byte(Endpoint_Read_8());
+		for(int j = 0; j < MASS_STORAGE_IO_EPSIZE - 1; j++) {
+			SPDR = value;
+			value = encrypt_CTR_byte(Endpoint_Read_8());
+			while(!(SPSR & _BV(SPIF))) ; // wait for it to go
 		}
+		// Do the last one
+		SPDR = value;
+		while(!(SPSR & _BV(SPIF))) ; // wait for it to go
 	}
 
 	SPI_byte(0xff); // CRC
