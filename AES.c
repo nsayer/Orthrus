@@ -37,11 +37,13 @@ in the foreground - no DMA.
 
 #include <avr/io.h>
 #include <stdlib.h>
+#include <util/atomic.h>
 #include "SCSI.h"
 #include "AES.h"
 
 volatile static uint8_t nonce[BLOCKSIZE], pre_ct[VIRTUAL_MEMORY_BLOCK_SIZE];
-volatile static uint16_t pre_ct_head, pre_ct_tail;
+static uint16_t pre_ct_tail;
+volatile static uint16_t pre_ct_head;
 
 void init_aes(void) {
 	AES.CTRL |= AES_RESET_bm;
@@ -139,7 +141,12 @@ void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
  * gotten far enough ahead that the wait never happens.
  */
 uint8_t encrypt_CTR_byte(uint8_t data) {
-	while (pre_ct_tail == pre_ct_head) ; // wait for the data to fill in
+	uint16_t local_head;
+	do {
+		ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+			local_head = pre_ct_head;
+		}
+	} while (pre_ct_tail == local_head) ; // wait for the data to fill in
 	return pre_ct[pre_ct_tail++] ^ data;
 }
 
