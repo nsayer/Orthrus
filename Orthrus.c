@@ -371,6 +371,9 @@ void __ATTR_NORETURN__ main(void) {
 
 	USB_Init();
 
+	// Enable all levels of the interrupt controller
+	PMIC.CTRL = PMIC_HILVLEN_bm | PMIC_MEDLVLEN_bm | PMIC_LOLVLEN_bm;
+
 	GlobalInterruptEnable();
 
 	unit_active = 0;
