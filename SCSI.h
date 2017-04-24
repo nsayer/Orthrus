@@ -48,6 +48,9 @@
 
 #define VIRTUAL_MEMORY_BLOCK_SIZE (512)
 
+#define SCSI_ASENSE_OPERATING_CONDITIONS_CHANGED                 0x3A
+#define SCSI_ASENSEQ_REPORTED_LUNS_DATA_HAS_CHANGED		0x0E
+
 	/* Macros: */
 		/** Macro to set the current SCSI sense data to the given key, additional sense code and additional sense qualifier. This
 		 *  is for convenience, as it allows for all three sense values (returned upon request to the host to give information about

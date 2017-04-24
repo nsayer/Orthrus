@@ -121,8 +121,9 @@ bool SCSI_DecodeSCSICommand(USB_ClassInfo_MS_Device_t* const MSInterfaceInfo)
 		case SCSI_CMD_PREVENT_ALLOW_MEDIUM_REMOVAL:
 		case SCSI_CMD_VERIFY_10:
 			/* These commands should just succeed, no handling required */
-			CommandSuccess = true;
+			if (!SCSI_CheckUnitReady(MSInterfaceInfo)) return false;
 			MSInterfaceInfo->State.CommandBlock.DataTransferLength = 0;
+			CommandSuccess = true;
 			break;
 		default:
 			/* Update the SENSE key to reflect the invalid command */
@@ -153,9 +154,10 @@ static bool SCSI_CheckUnitReady(USB_ClassInfo_MS_Device_t* const MSInterfaceInfo
 		force_attention = 0;
                 /* Update SENSE key with a hardware error condition and return command fail */
                 SCSI_SET_SENSE(SCSI_SENSE_KEY_UNIT_ATTENTION,
-		               SCSI_ASENSE_NO_ADDITIONAL_INFORMATION,
-                               SCSI_ASENSEQ_NO_QUALIFIER);
+				SCSI_ASENSE_OPERATING_CONDITIONS_CHANGED,
+				SCSI_ASENSEQ_REPORTED_LUNS_DATA_HAS_CHANGED);
 
+		MSInterfaceInfo->State.CommandBlock.DataTransferLength = 0;
                 return false;
         }
 	// If the volume isn't active, then everything fails.
@@ -166,6 +168,7 @@ static bool SCSI_CheckUnitReady(USB_ClassInfo_MS_Device_t* const MSInterfaceInfo
                                SCSI_ASENSE_MEDIUM_NOT_PRESENT,
                                SCSI_ASENSEQ_NO_QUALIFIER);
 
+		MSInterfaceInfo->State.CommandBlock.DataTransferLength = 0;
                 return false;
         }
 	return true;

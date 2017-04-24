@@ -53,29 +53,23 @@ static void set_speed(uint8_t speed) {
 	switch(speed) {
 		case SPI_SLOW:
 			// 250 kHz - 16 MHz / 64
-			SPSR &= ~(_BV(SPI2X));
-			SPCR |= _BV(SPR0) | _BV(SPR1);
+			SPIC.CTRL = SPI_ENABLE_bm | SPI_MASTER_bm | SPI_MODE_0_gc | SPI_PRESCALER_DIV128_gc;
 			break;
 		case SPI_FAST:
 			// RAMMING SPEED!
-			SPSR |= _BV(SPI2X);
-			SPCR &= ~(_BV(SPR0) | _BV(SPR1));
+			SPIC.CTRL = SPI_CLK2X_bm | SPI_ENABLE_bm | SPI_MASTER_bm | SPI_MODE_0_gc | SPI_PRESCALER_DIV4_gc;
 			break;
 	}
 }
 
 void init_spi(void) {
-	SPCR = _BV(SPE) | _BV(MSTR);
-	//SPSR = _BV(SPI2X);
 	set_speed(SPI_SLOW);
 }
 
 static uint8_t SPI_byte(uint8_t data) {
-	uint8_t out;
-	SPDR = data;
-	while(!(SPSR & _BV(SPIF)));
-	out = SPDR;
-	return out;
+	SPIC.DATA = data;
+	while(!(SPIC.STATUS & SPI_IF_bm));
+	return SPIC.DATA;
 }
 
 static uint8_t waitForStart(uint16_t timeout) {
@@ -123,7 +117,7 @@ static uint8_t sendCommand_R1(uint8_t cmd, uint32_t arg) {
 
 static uint8_t init_card(uint8_t card) {
 	// Make sure the cards are still in
-	if ((CD_REG & CD_MASK) != 0) return 1; // fail
+	if (!CD_STATE) return 1; // fail
 
 	ASSERT_CARD(card);
 
@@ -146,7 +140,7 @@ static uint8_t init_card(uint8_t card) {
 	if ((r3resp & 0xff) != 0xaa) goto fail;
 
 	// Make sure the cards are still in
-	if ((CD_REG & CD_MASK) != 0) goto fail;
+	if (!CD_STATE) goto fail;
 
 	init_success = 0;
 	for(uint16_t now = milli_timer; milli_timer - now < INIT_TIMEOUT; ) {
@@ -159,7 +153,7 @@ static uint8_t init_card(uint8_t card) {
 	if (!init_success) goto fail;
 
 	// Make sure the cards are still in
-	if ((CD_REG & CD_MASK) != 0) goto fail;
+	if (!CD_STATE) goto fail;
 
 	// the top 2 bits of the OCR register
 	if (sendCommand_R1(58, 0) != R1_READY_STATE) goto fail;
@@ -176,7 +170,7 @@ fail:
 }
 
 static uint8_t getCardSize(uint8_t card, uint32_t *size) {
-	if ((CD_REG & CD_MASK) != 0) return 1; // fail
+	if (!CD_STATE) return 1; // fail
 	ASSERT_CARD(card);
 	// read the CSD register
 	if (sendCommand_R1(9, 0) != R1_READY_STATE) goto fail;
@@ -211,10 +205,11 @@ uint32_t volume_size;
 
 uint8_t init(void) {
 	DEASSERT_CARDS;
+	CARD_POWER_ON;
 
 	// For 100 ms, the card detect lines have to be on (low).
 	for(uint16_t now = milli_timer; milli_timer - now < 100; ) {
-		if ((CD_REG & CD_MASK) != 0) return 1; // fail
+		if (!CD_STATE) return 1; // fail
 	}
 
 	set_speed(SPI_SLOW);
@@ -243,7 +238,7 @@ uint8_t init(void) {
 	if (getCardSize(1, &size_b)) return 1;
 	volume_size = (((size_a > size_b)?size_b:size_a) - 1) * 2 - 1;
 
-	if ((CD_REG & CD_MASK) != 0) return 1; // fail
+	if (!CD_STATE) return 1; // fail
 	return prepVolume(); // try to initialize the crypto
 }
 
@@ -251,7 +246,7 @@ uint8_t volumeReadBlock(uint32_t blocknum) {
 	uint8_t card = setupBlockCrypto(blocknum);
 	uint32_t phys_block = (blocknum >> 1) + 1;
 
-	if ((CD_REG & CD_MASK) != 0) return 1; // fail
+	if (!CD_STATE) return 1; // fail
 	ASSERT_CARD(card);
 
 	if (waitForIdle(RW_TIMEOUT)) goto fail;
@@ -269,15 +264,15 @@ uint8_t volumeReadBlock(uint32_t blocknum) {
 			if (Endpoint_WaitUntilReady())
 				return 1;
 		}
-		SPDR = 0xff; // write the initial (garbage) byte to kick it off
+		SPIC.DATA = 0xff; // write the initial (garbage) byte to kick it off
 		for(int j = 0; j < MASS_STORAGE_IO_EPSIZE - 1; j++) {
-			while(!(SPSR & _BV(SPIF))) ; // wait for it
-			uint8_t readByte = SPDR;
-			SPDR = 0xff; // start the next one right away in the background.
+			while(!(SPIC.STATUS & SPI_IF_bm)) ; // wait for it
+			uint8_t readByte = SPIC.DATA;
+			SPIC.DATA = 0xff; // start the next one right away in the background.
 			Endpoint_Write_8(encrypt_CTR_byte(readByte));
 		}
-		while(!(SPSR & _BV(SPIF))) ; // wait for the last one.
-		uint8_t readByte = SPDR;
+		while(!(SPIC.STATUS & SPI_IF_bm)) ; // wait for the last one.
+		uint8_t readByte = SPIC.DATA;
 		Endpoint_Write_8(encrypt_CTR_byte(readByte));
 	}
 
@@ -296,7 +291,7 @@ uint8_t volumeWriteBlock(uint32_t blocknum) {
 	uint8_t card = setupBlockCrypto(blocknum);
 	uint32_t phys_block = (blocknum >> 1) + 1;
 
-	if ((CD_REG & CD_MASK) != 0) return 1; // fail
+	if (!CD_STATE) return 1; // fail
 	ASSERT_CARD(card);
 
 	if (waitForIdle(RW_TIMEOUT)) goto fail;
@@ -316,13 +311,13 @@ uint8_t volumeWriteBlock(uint32_t blocknum) {
 		}
 		uint8_t value = encrypt_CTR_byte(Endpoint_Read_8());
 		for(int j = 0; j < MASS_STORAGE_IO_EPSIZE - 1; j++) {
-			SPDR = value;
+			SPIC.DATA = value;
 			value = encrypt_CTR_byte(Endpoint_Read_8());
-			while(!(SPSR & _BV(SPIF))) ; // wait for it to go
+			while(!(SPIC.STATUS & SPI_IF_bm)) ; // wait for it to go
 		}
 		// Do the last one
-		SPDR = value;
-		while(!(SPSR & _BV(SPIF))) ; // wait for it to go
+		SPIC.DATA = value;
+		while(!(SPIC.STATUS & SPI_IF_bm)) ; // wait for it to go
 	}
 
 	SPI_byte(0xff); // CRC

@@ -2,11 +2,10 @@
 
 LUFA_PATH=/Users/nsayer/Downloads/lufa-LUFA-151115/LUFA
 
-MCU          = atmega32u2
-ARCH         = AVR8
-#BOARD        = USBKEY
-F_CPU        = 16000000
-F_USB        = $(F_CPU)
+MCU          = atxmega32a4u
+ARCH         = XMEGA
+F_CPU        = 32000000
+F_USB        = 48000000
 OPTIMIZATION = s
 TARGET       = Orthrus
 SRC          = $(TARGET).c AES.c sd.c Descriptors.c SCSI.c $(LUFA_SRC_USB) $(LUFA_SRC_USBCLASS)

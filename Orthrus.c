@@ -36,11 +36,8 @@
 #include "sd.h"
 #include "Descriptors.h"
 
-// the AES key and block size
-#define BLOCKSIZE 16
-
-// 100 microseconds => 10 kHz sampling for the entropy source
-#define DELAY_US_TIME (100)
+// 10 microseconds => 100 kHz sampling for the entropy source
+#define DELAY_US_TIME (10)
 
 // To turn 16 MHz prescaled by 1024 into a 1 ms timer,
 // we count 15 5/8 counts per interrupt. We do this
@@ -62,8 +59,7 @@ static uint8_t cardswap;
 // Only a minutes worth, but we have a very short attention span
 volatile uint16_t milli_timer;
 
-uint8_t unit_active;
-uint8_t force_attention;
+uint8_t force_attention, unit_active;
 
 static int32_t debounce_start; // signed and large so we can use -1 to disable
 static uint8_t button_state;
@@ -73,19 +69,29 @@ static uint8_t randomByte(void) {
 	for(int i = 0; i < 8; i++) {
 		_delay_us(DELAY_US_TIME);
 		out <<= 1;
-		out |= (RNG_REG & RNG_PIN)?0:1; // why the hell not?
+		out |= RNG_STATE?0:1; // why the hell not?
 	}
 	return out;
 }
 
+// How much source entropy per output RNG do we require? Note that
+// this value is actually less because we also pull a random key
+// block for the CMAC. Since the key and block are the same size,
+// we can just subtract 1 from the value we want.
+#define ENTROPY_EXPANSION (4 - 1)
+
 void fillRandomBuffer(uint8_t *buf) {
-	uint8_t keyblock[BLOCKSIZE];
-	for (int i = 0; i < BLOCKSIZE; i++) {
+	uint8_t keyblock[KEYSIZE];
+	for (int i = 0; i < sizeof(keyblock); i++) {
 		keyblock[i] = randomByte();
-		buf[i] = randomByte();
 	}
 	setKey(keyblock);
-	encrypt_ECB(buf);
+
+	uint8_t ent_block[BLOCKSIZE * ENTROPY_EXPANSION];
+	for (int i = 0; i < sizeof(ent_block); i++) {
+		ent_block[i] = randomByte();
+	}
+	CMAC(ent_block, sizeof(ent_block), buf);
 }
 
 /*
@@ -186,7 +192,7 @@ uint8_t initVolume(void) {
 uint8_t setupBlockCrypto(uint32_t blocknum) {
 	uint8_t cardA = (blocknum & 0x1) == 0;
 
-	uint8_t *nonce = cardA?nonceA:nonceB;
+	uint8_t *nonce = cardA?nonceB:nonceA;
 	nonce[10] = (uint8_t)(blocknum >> 24);
 	nonce[11] = (uint8_t)(blocknum >> 16);
 	nonce[12] = (uint8_t)(blocknum >> 8);
@@ -196,11 +202,11 @@ uint8_t setupBlockCrypto(uint32_t blocknum) {
 	return cardA ^ cardswap;
 }
 
-ISR(TIMER1_COMPA_vect) {
+ISR(TCC0_OVF_vect) {
 	milli_timer++; // the whole point of doing this.
 	// Subtract 1 from whatever's here because the counter is
 	// 0 based *and* inclusive
-	OCR1A = TC_BASE + (((milli_timer % TC_TOTAL_CYCLES) < TC_LONG_CYCLES)?1:0) - 1;
+	TCC0.PER = TC_BASE + (((milli_timer % TC_TOTAL_CYCLES) < TC_LONG_CYCLES)?1:0) - 1;
 }
 
 uint8_t check_button(void) {
@@ -210,7 +216,7 @@ uint8_t check_button(void) {
 	}
 	if (debounce_start != -1 && now - ((uint16_t)debounce_start) < DEBOUNCE_TIME) return button_state;
 	debounce_start = -1; // force it off.
-	uint8_t now_button = !(BUTTON_REG & BUTTON_PIN); // button active low
+	uint8_t now_button = !SWITCH_STATE; // button is active-low
 	if (now_button == button_state) return button_state; // no change
 	button_state = now_button;
 	debounce_start = now; // start a new debounce time.
@@ -218,23 +224,76 @@ uint8_t check_button(void) {
 }
 
 void init_timer(void) {
-	TCCR1A = 0;
-	TCCR1B = _BV(WGM12) | _BV(CS12) | _BV(CS10); // CTC mode, divide by 1024.
-	TIMSK1 = _BV(OCF1A); // interrupt on compare match
-	OCR1A = TC_BASE; // first cycle is a long one
+	TCC0.CTRLA = TC_CLKSEL_DIV1024_gc;
+	TCC0.INTCTRLA = TC_OVFINTLVL_LO_gc;
+	TCC0.PER = TC_BASE - 1;
+}
+
+// For 9600 baud at 32 MHz, BSEL = 12 BSCALE = 4 CLK2X = 0
+#define BSEL (12)
+#define BSCALE (4)
+
+#define SER_BUFSIZE (128)
+
+volatile static uint8_t diag_tx_buf[SER_BUFSIZE];
+volatile static uint8_t diag_tx_head, diag_tx_tail;
+
+ISR(USARTE0_DRE_vect) {
+	// If the buffer is empty...
+	if (diag_tx_tail == diag_tx_head) {
+		// turn off the DRE interrupt.
+		USARTE0.CTRLA = USART_DREINTLVL_OFF_gc;
+		return;
+	}
+	USARTE0.DATA = diag_tx_buf[diag_tx_tail];
+	if (++diag_tx_tail >= SER_BUFSIZE) diag_tx_tail = 0;
+}
+
+void diag_tx(uint8_t data) {
+	uint8_t buf_in_use;
+	do {
+		ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+			buf_in_use = diag_tx_head - diag_tx_tail;
+		}
+		if (buf_in_use < 0) buf_in_use += SER_BUFSIZE;
+	} while (buf_in_use >= SER_BUFSIZE - 2) ; // wait for room in the transmit buffer
+
+	ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+		diag_tx_buf[diag_tx_head] = data;
+		if (++diag_tx_head >= SER_BUFSIZE) diag_tx_head = 0;
+	}
+	USARTE0.CTRLA = USART_DREINTLVL_LO_gc; // force on the DRE interrupt.
 }
 
 void init_ports(void) {
-	PORTB = PULLUP_B_BITS;
-	DDRB = DDRB_BITS;
+	// start with LEDs and card power off - do this before changing direction.
+	CARD_POWER_OFF;
+	LED_OFF(LED_RDY_bm | LED_ACT_bm | LED_ERR_bm);
+	// LED and cardpower pins are output, switch is input.
+	PORTA.DIR = (1<<0) | (1<<1) | (1<<2) | (1<<4);
+	// pull-up on switch pin
+	PORTA.PIN3CTRL = PORT_OPC_PULLUP_gc;
 
-	// The three LED pins are outputs. Everything else is in.
-	PORTC = PULLUP_C_BITS;
-	DDRC = DDRC_BITS;
+	// Start with the cards deasserted - do this before changin direction.
+	DEASSERT_CARDS;
+	// card select pins, MOSI and SCK are output
+	PORTC.DIR = (1<<3) | (1<<4) | (1<<5) | (1<<7);
+	// pull-up on MISO and the two card detect pins
+	PORTCFG.MPCMASK = (1<<1) | (1<<2) | (1<<6);
+	PORTC.PIN1CTRL = PORT_OPC_PULLUP_gc;
 
-	// Port D requires no setup. It has one pin used as an input.
-	//PORTD = PULLUP_D_BITS;
-	//DDRD = DDRD_BITS;
+	PORTD.DIR = 0; // all input.
+
+	diag_tx_head = diag_tx_tail = 0;
+	// PE3 is TX_DIAG - output
+	PORTE.DIR = (1<<3);
+	PORTE.OUTSET = (1<<3);
+	USARTE0.CTRLA = USART_DREINTLVL_OFF_gc;
+	USARTE0.CTRLB = USART_TXEN_bm;
+	USARTE0.CTRLC = USART_CHSIZE_8BIT_gc;
+	USARTE0.BAUDCTRLA = (uint8_t)BSEL;
+	USARTE0.BAUDCTRLB = (BSCALE << USART_BSCALE_gp) | (((uint8_t)BSEL) >> 8);
+
 }
 
 
@@ -285,17 +344,29 @@ bool CALLBACK_MS_Device_SCSICommandReceived(USB_ClassInfo_MS_Device_t* const MSI
 {
         bool CommandSuccess;
 
-        LED_REG |= LED_ACT;
+	LED_OFF(LED_ERR_bm);
         CommandSuccess = SCSI_DecodeSCSICommand(MSInterfaceInfo);
-        LED_REG &= ~LED_ACT;
 
+	if (!CommandSuccess) LED_ON(LED_ERR_bm);
         return CommandSuccess;
 }
 
 void __ATTR_NORETURN__ main(void) {
 
+	// Run the CPU at 32 MHz.
+	OSC.CTRL = OSC_RC32MEN_bm;
+	while(!(OSC.STATUS & OSC_RC32MRDY_bm)) ; // wait for it.
+	_PROTECTED_WRITE(CLK.CTRL, CLK_SCLKSEL_RC32M_gc);
+	OSC.CTRL &= ~(OSC_RC2MEN_bm); // we're done with the 2 MHz osc.
+
+	// Now set up the PLL for 48 MHz for USB.
+	OSC.DFLLCTRL = OSC_RC32MCREF_USBSOF_gc; // correct the 32 MHz oscillator from USB SOF.
+	OSC.PLLCTRL = OSC_PLLSRC_RC32M_gc | 6; // The PLL output is 6 times the input, which is 32MHz/4
+	CLK.USBCTRL = CLK_USBSRC_PLL_gc | CLK_USBSEN_bm; // USB is clocked from the PLL.
+
 	init_ports();
 	init_timer();
+	init_aes();
 	init_spi();
 
 	USB_Init();
@@ -305,13 +376,13 @@ void __ATTR_NORETURN__ main(void) {
 	unit_active = 0;
 	force_attention = 0;
 	uint8_t cards_present = 0;
-	LED_REG &= ~(LED_ACT | LED_RDY | LED_ERR);
+	LED_OFF(LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
 	uint8_t button_state = 0, ignoring_button = 0;
 	uint16_t button_started = 0;
 	uint8_t led_save = 0;
 	while(1) {
 
-		uint8_t cards_now = !(CD_REG & CD_MASK);
+		uint8_t cards_now = !CD_STATE;
 
 		if (cards_present ^ cards_now) {
 			// there has been a change. Note it for the future.
@@ -322,17 +393,21 @@ void __ATTR_NORETURN__ main(void) {
 				ignoring_button = 0;
 				button_state = 0;
 				if (init()) {
-					LED_REG |= LED_ERR;
+					LED_ON(LED_ERR_bm);
 					unit_active = 0;
+					force_attention = 1;
 				} else {
-					LED_REG |= LED_RDY;
+					LED_ON(LED_RDY_bm);
 					unit_active = 1;
-					// XXX tell the host it's ready
+					force_attention = 1;
 				}
 			} else {
+				CARD_POWER_OFF;
+				AES.CTRL |= AES_RESET_bm; // clear out the key
 				unit_active = 0;
+				force_attention = 1;
 				// lights out!
-				LED_REG &= ~(LED_ACT | LED_RDY | LED_ERR);
+				LED_OFF(LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
 				// XXX tell the host it's gone
 			}
 		}
@@ -352,7 +427,7 @@ void __ATTR_NORETURN__ main(void) {
 				// The button is now down. Save the state of the LEDs
 				// and start the countdown.
 				button_started = milli_timer;
-				led_save = LED_REG & (LED_ACT | LED_RDY | LED_ERR);
+				// XXX led_save = LED_REG & (LED_ACT | LED_RDY | LED_ERR);
 			} else {
 				// They let the button up. There's two possibilities:
 				// Either they let it up before we blew it up, or they
@@ -361,8 +436,8 @@ void __ATTR_NORETURN__ main(void) {
 				// when we formatted the disk we marked the button as
 				// being in an ignored state. We can now undo that.
 				if (!ignoring_button) {
-					LED_REG &= ~(LED_ACT | LED_RDY | LED_ERR);
-					LED_REG |= led_save;
+					LED_OFF(LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
+					// XXX LED_REG |= led_save;
 				}
 				ignoring_button = 0;
 			}
@@ -373,25 +448,25 @@ void __ATTR_NORETURN__ main(void) {
 			if (milli_timer - button_started >= 5000) {
 				if (!initVolume()) {
 					// success!
-					LED_REG &= ~(LED_ACT | LED_RDY | LED_ERR);
-					LED_REG |= LED_RDY;
-					ignoring_button = 1;
+					LED_OFF(LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
+					LED_ON(LED_RDY_bm);
 					unit_active = 1;
 					force_attention = 1;
-					// XXX tell the host it's ready
+					ignoring_button = 1;
 				} else {
-					LED_REG &= ~(LED_ACT | LED_RDY | LED_ERR);
-					LED_REG |= LED_ERR;
+					LED_OFF(LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
+					LED_ON(LED_ERR_bm);
 					unit_active = 0;
+					force_attention = 1;
 					ignoring_button = 1;
 				}
 			} else {
 				// blink the error light to warn them they're about
 				// to kill the world.
 				if (((milli_timer - button_started) / 250) % 2)
-					LED_REG |= LED_ERR;
+					LED_ON(LED_ERR_bm);
 				else
-					LED_REG &= ~LED_ERR;
+					LED_OFF(LED_ERR_bm);
 			}
 		}
 	}
