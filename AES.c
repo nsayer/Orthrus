@@ -56,12 +56,10 @@ ISR(DMA_CH0_vect) {
 	pre_ct_head += BLOCKSIZE;
 	// if that means we're done, then stop.
 	if (pre_ct_head >= sizeof(pre_ct)) {
-		// turn off the auto-start mode.
-		AES.CTRL &= ~(AES_AUTO_bm);
 		return;
 	}
-	// Automatically start AES once the DMA is complete.
-	AES.CTRL |= AES_AUTO_bm;
+	// increment the counter
+	if (++nonce[sizeof(nonce) - 1] == 0) ++nonce[sizeof(nonce) - 2];
 	// Start the nonce bufer copy process, which is an
 	// enable and a transfer request (done separately just to be sure).
 	DMA.CH1.CTRLA |= DMA_CH_ENABLE_bm;
@@ -69,8 +67,6 @@ ISR(DMA_CH0_vect) {
 }
 
 ISR(DMA_CH1_vect) {
-	// increment the counter
-	if (++nonce[sizeof(nonce) - 1] == 0) ++nonce[sizeof(nonce) - 2];
 	// enable channel 0
 	DMA.CH0.CTRLA |= DMA_CH_ENABLE_bm;
 	// and kick off AES
