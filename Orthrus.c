@@ -429,7 +429,9 @@ void __ATTR_NORETURN__ main(void) {
 			if (button_state) {
 				// The button is now down. Save the state of the LEDs
 				// and start the countdown.
-				button_started = milli_timer;
+				ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+					button_started = milli_timer;
+				}
 				// XXX led_save = LED_REG & (LED_ACT | LED_RDY | LED_ERR);
 			} else {
 				// They let the button up. There's two possibilities:
@@ -448,7 +450,11 @@ void __ATTR_NORETURN__ main(void) {
 		if (button_state && !ignoring_button) {
 			// The button is down and we're not ignoring it.
 			// If the timer is done, then blow up the world.
-			if (milli_timer - button_started >= 5000) {
+			uint16_t now;
+			ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+				now = milli_timer;
+			}
+			if (now - button_started >= 5000) {
 				if (!initVolume()) {
 					// success!
 					LED_OFF(LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
@@ -466,7 +472,7 @@ void __ATTR_NORETURN__ main(void) {
 			} else {
 				// blink the error light to warn them they're about
 				// to kill the world.
-				if (((milli_timer - button_started) / 250) % 2)
+				if (((now - button_started) / 250) % 2)
 					LED_ON(LED_ERR_bm);
 				else
 					LED_OFF(LED_ERR_bm);
