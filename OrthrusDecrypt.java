@@ -148,6 +148,7 @@ public class OrthrusDecrypt {
 		System.err.println("Key block 1: " + hexString(keybytes1));
 		System.err.println("Key block 2: " + hexString(keybytes2));
 		System.err.println("Volume ID  : " + hexString(volumeID));
+
 		/*
 		 * To make the volume key (the AES key for the entire disk),
 		 * we run AES CMAC with an all-zero key over the two blocks
@@ -161,10 +162,8 @@ public class OrthrusDecrypt {
 		 */
 		Mac mac = Mac.getInstance("AESCMAC");
 		mac.init(new SecretKeySpec(new byte[BLOCKSIZE], "AES")); // all zero key
-		byte[] keydata = new byte[64];
-		System.arraycopy(keybytes1, 0, keydata, 0, keybytes1.length);
-		System.arraycopy(keybytes2, 0, keydata, 32, keybytes1.length);
-		mac.update(keydata);
+		mac.update(keybytes1);
+		mac.update(keybytes2);
 		byte[] intermediate = mac.doFinal();
 		mac = Mac.getInstance("AESCMAC");
 		mac.init(new SecretKeySpec(intermediate, "AES"));
@@ -192,11 +191,11 @@ public class OrthrusDecrypt {
 				stream = stream1;
 			else
 				stream = stream2;
-			if (stream.read(ciphertext) <= 0) break;
+			if (stream.read(ciphertext) <= 0) break; // If we reach the end of one card, we're done.
 
 			// create the individual nonce for this block.
 			byte[] nonce = new byte[14];
-			System.arraycopy(cardA?nonce2:nonce1, 0, nonce, 0, nonce1.length);
+			System.arraycopy(cardA?nonce2:nonce1, 0, nonce, 0, nonce1.length); // pick the nonce from the other card
 			nonce[10] = (byte)(block >> 24);
 			nonce[11] = (byte)(block >> 16);
 			nonce[12] = (byte)(block >> 8);
