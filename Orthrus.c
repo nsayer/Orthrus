@@ -199,7 +199,7 @@ uint8_t setupBlockCrypto(uint32_t blocknum) {
 	nonce[13] = (uint8_t)(blocknum >> 0);
 	init_CTR(nonce, sizeof(nonceA));
 
-	return cardA ^ cardswap;
+	return !(cardA ^ cardswap);
 }
 
 ISR(TCC0_OVF_vect) {
