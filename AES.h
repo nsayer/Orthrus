@@ -19,6 +19,7 @@
 
 
 #include <stdint.h>
+#include "SCSI.h"
 
 // The block size for AES - this is how many bytes we copy in to
 // AES.STATE
@@ -27,11 +28,30 @@
 // AES.KEY
 #define KEYSIZE (16)
 
+extern volatile uint8_t key[KEYSIZE], pre_ct[VIRTUAL_MEMORY_BLOCK_SIZE];
+extern volatile uint16_t pre_ct_head, pre_ct_tail;
+
+/*
+ * Process a streaming block. This assumes you called init_CTR already.
+ * Hopefully you did it "a while ago" and the background process has
+ * gotten far enough ahead that the wait never happens.
+ */
+static inline uint8_t encrypt_CTR_byte(uint8_t data) ATTR_ALWAYS_INLINE;
+static inline uint8_t encrypt_CTR_byte(uint8_t data) {
+        uint16_t local_head;
+        do {
+                ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+                        local_head = pre_ct_head;
+                }
+        } while (pre_ct_tail == local_head) ; // wait for the data to fill in
+        return pre_ct[pre_ct_tail++] ^ data;
+}
+
+// Make this "always inline," effectively.
+#define setKey(k) do { memcpy((uint8_t*)key, (k), sizeof(key)); } while(0);
+
 // set up the AES+DMA subsystem.
 void init_aes(void);
-
-// Call this to set the key. The buffer is KEYSIZE bytes long.
-void setKey(const uint8_t* key);
 
 // Call this at the very start of a disk transfer (either direction).
 // It will set up things so you can call encrypt_CTR_byte()

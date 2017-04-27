@@ -41,9 +41,10 @@ in the foreground - no DMA.
 #include "SCSI.h"
 #include "AES.h"
 
-volatile static uint8_t key[KEYSIZE], nonce[BLOCKSIZE], pre_ct[VIRTUAL_MEMORY_BLOCK_SIZE];
-static uint16_t pre_ct_tail;
-volatile static uint16_t pre_ct_head;
+volatile uint8_t key[KEYSIZE], pre_ct[VIRTUAL_MEMORY_BLOCK_SIZE];
+
+volatile static uint8_t nonce[BLOCKSIZE];
+volatile uint16_t pre_ct_tail, pre_ct_head;
 
 void init_aes(void) {
 	AES.CTRL |= AES_RESET_bm;
@@ -82,28 +83,6 @@ void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
 	}
 	AES.INTCTRL = AES_INTLVL_MED_gc; //
 	AES.CTRL |= AES_START_bm;
-}
-
-/*
- * Process a streaming block. This assumes you called init_CTR already.
- * Hopefully you did it "a while ago" and the background process has
- * gotten far enough ahead that the wait never happens.
- */
-uint8_t encrypt_CTR_byte(uint8_t data) {
-	uint16_t local_head;
-	do {
-		ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-			local_head = pre_ct_head;
-		}
-	} while (pre_ct_tail == local_head) ; // wait for the data to fill in
-	return pre_ct[pre_ct_tail++] ^ data;
-}
-
-/*
- * Copy in the key
- */
-void setKey(const uint8_t* inkey) {
-	memcpy((uint8_t*)key, inkey, sizeof(key));
 }
 
 /*
