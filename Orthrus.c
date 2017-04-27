@@ -39,12 +39,12 @@
 // 10 microseconds => 100 kHz sampling for the entropy source
 #define DELAY_US_TIME (10)
 
-// To turn 16 MHz prescaled by 1024 into a 1 ms timer,
-// we count 15 5/8 counts per interrupt. We do this
-// by counting to 16 5 times, and then 15 3 times.
-#define TC_BASE (15)
-#define TC_LONG_CYCLES (5)
-#define TC_TOTAL_CYCLES (8)
+// To turn 32 MHz prescaled by 1024 into a 1 ms timer,
+// we count 31 1/4 counts per interrupt. We do this
+// by counting to 31 3 times, and then 32 once.
+#define TC_BASE (31)
+#define TC_LONG_CYCLES (1)
+#define TC_TOTAL_CYCLES (4)
 
 // debounce the switch for 50 ms - that means ignoring any state changes
 // within that long of the first state change.
@@ -353,26 +353,27 @@ bool CALLBACK_MS_Device_SCSICommandReceived(USB_ClassInfo_MS_Device_t* const MSI
 
 void __ATTR_NORETURN__ main(void) {
 
-#if 0
 	// Run the CPU at 32 MHz.
 	OSC.CTRL = OSC_RC32MEN_bm;
 	while(!(OSC.STATUS & OSC_RC32MRDY_bm)) ; // wait for it.
 	_PROTECTED_WRITE(CLK.CTRL, CLK_SCLKSEL_RC32M_gc);
 	OSC.CTRL &= ~(OSC_RC2MEN_bm); // we're done with the 2 MHz osc.
 
-	// Now set up the PLL for 48 MHz for USB.
+	// Set up the DFLL to correct to the USB SOF.
 	OSC.DFLLCTRL = OSC_RC32MCREF_USBSOF_gc; // correct the 32 MHz oscillator from USB SOF.
+	DFLLRC32M.COMP1 = (F_CPU / 1024) & 0xff;
+	DFLLRC32M.COMP2 = (F_CPU / 1024) >> 8;
+	NVM.CMD = NVM_CMD_READ_CALIB_ROW_gc;
+	DFLLRC32M.CALA = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, RCOSC32MA));
+	DFLLRC32M.CALB = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, RCOSC32M));
+	NVM.CMD = 0;
+	DFLLRC32M.CTRL |= DFLL_ENABLE_bm;
+
+	// Now set up the PLL for 48 MHz for USB.
 	OSC.PLLCTRL = OSC_PLLSRC_RC32M_gc | 6; // The PLL output is 6 times the input, which is 32MHz/4
+	OSC.CTRL |= OSC_PLLEN_bm;
+	while(!(OSC.STATUS & OSC_PLLRDY_bm)) ; // wait for it.
 	CLK.USBCTRL = CLK_USBSRC_PLL_gc | CLK_USBSEN_bm; // USB is clocked from the PLL.
-#else
-	XMEGACLK_StartPLL(CLOCK_SRC_INT_RC2MHZ, 2000000, F_CPU);
-	XMEGACLK_SetCPUClockSource(CLOCK_SRC_PLL);
-
-	/* Start the 32MHz internal RC oscillator and start the DFLL to increase it to 48MHz using the USB SOF as a reference */
-	XMEGACLK_StartInternalOscillator(CLOCK_SRC_INT_RC32MHZ);
-	XMEGACLK_StartDFLL(CLOCK_SRC_INT_RC32MHZ, DFLL_REF_INT_USBSOF, F_USB);
-
-#endif
 
 	init_ports();
 	init_timer();
@@ -442,7 +443,7 @@ void __ATTR_NORETURN__ main(void) {
 				ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
 					button_started = milli_timer;
 				}
-				// XXX led_save = LED_REG & (LED_ACT | LED_RDY | LED_ERR);
+				led_save = PORTA.OUT & (LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
 			} else {
 				// They let the button up. There's two possibilities:
 				// Either they let it up before we blew it up, or they
@@ -452,7 +453,7 @@ void __ATTR_NORETURN__ main(void) {
 				// being in an ignored state. We can now undo that.
 				if (!ignoring_button) {
 					LED_OFF(LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
-					// XXX LED_REG |= led_save;
+					LED_ON(led_save);
 				}
 				ignoring_button = 0;
 			}
