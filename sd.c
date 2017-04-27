@@ -21,7 +21,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <avr/io.h>
-#include <avr/eeprom.h>
 #include <util/atomic.h>
 
 #include <LUFA/Drivers/USB/USB.h>
@@ -74,6 +73,7 @@ static uint8_t SPI_byte(uint8_t data) {
 
 static uint8_t waitForStart(uint16_t timeout) {
 	uint8_t byte;
+	// XXX this idiom isn't interrupt-safe.
 	for(uint16_t now = milli_timer; milli_timer - now < timeout; ) {
 		if ((byte = SPI_byte(0xff)) != 0xff) break;
 	}
@@ -81,6 +81,7 @@ static uint8_t waitForStart(uint16_t timeout) {
 }
 
 static uint8_t waitForIdle(uint16_t timeout) {
+	// XXX this idiom isn't interrupt-safe.
 	for(uint16_t now = milli_timer; milli_timer - now < timeout; ) {
 		if (SPI_byte(0xff) == 0xff) return 0; //idle
 	}
@@ -108,6 +109,7 @@ static uint8_t sendCommand_R1(uint8_t cmd, uint32_t arg) {
 			break;
 	}
 	response = 0xff;
+	// XXX this idiom isn't interrupt-safe.
 	for(uint16_t now = milli_timer; milli_timer - now < CMD_TIMEOUT; ) {
 		response = SPI_byte(0xff);
 		if (!(response & 0x80)) break;
@@ -123,6 +125,7 @@ static uint8_t init_card(uint8_t card) {
 
 	// We only support SDHC/SDXC cards.
 	uint8_t init_success = 0;
+	// XXX this idiom isn't interrupt-safe.
 	for(uint16_t now = milli_timer; milli_timer - now < INIT_TIMEOUT; ) {
 		if (sendCommand_R1(0, 0) == R1_IDLE_STATE) {
 			init_success = 1;
@@ -143,6 +146,7 @@ static uint8_t init_card(uint8_t card) {
 	if (!CD_STATE) goto fail;
 
 	init_success = 0;
+	// XXX this idiom isn't interrupt-safe.
 	for(uint16_t now = milli_timer; milli_timer - now < INIT_TIMEOUT; ) {
 		sendCommand_R1(55, 0);
 		if (sendCommand_R1(41, 0x40000000UL) == R1_READY_STATE) {
@@ -208,7 +212,8 @@ uint8_t init(void) {
 	CARD_POWER_ON;
 
 	// For 100 ms, the card detect lines have to be on (low).
-	for(uint16_t now = milli_timer; milli_timer - now < 100; ) {
+	// XXX this idiom isn't interrupt-safe.
+	for(uint16_t now = milli_timer; milli_timer - now < 500; ) {
 		if (!CD_STATE) return 1; // fail
 	}
 
@@ -226,7 +231,6 @@ uint8_t init(void) {
 	ASSERT_CARD(1);
 	sendCommand_R1(0, 0);
 	DEASSERT_CARDS;
-
 	if (init_card(0)) return 1; // card A
 
 	if (init_card(1)) return 1; // card B
@@ -248,6 +252,7 @@ uint8_t volumeReadBlock(uint32_t blocknum) {
 
 	if (!CD_STATE) return 1; // fail
 	ASSERT_CARD(card);
+	LED_ON(LED_ACT_bm);
 
 	if (waitForIdle(RW_TIMEOUT)) goto fail;
 
@@ -280,10 +285,13 @@ uint8_t volumeReadBlock(uint32_t blocknum) {
 	SPI_byte(0xff); // CRC
 
 	DEASSERT_CARDS;
+	LED_OFF(LED_ACT_bm);
 	return 0;
 
 fail:
 	DEASSERT_CARDS;
+	LED_OFF(LED_ACT_bm);
+	LED_ON(LED_ERR_bm);
 	return 1;
 }
 
@@ -293,6 +301,7 @@ uint8_t volumeWriteBlock(uint32_t blocknum) {
 
 	if (!CD_STATE) return 1; // fail
 	ASSERT_CARD(card);
+	LED_ON(LED_ACT_bm);
 
 	if (waitForIdle(RW_TIMEOUT)) goto fail;
 
@@ -323,12 +332,16 @@ uint8_t volumeWriteBlock(uint32_t blocknum) {
 	SPI_byte(0xff); // CRC
 	SPI_byte(0xff); // CRC
 	uint8_t data_status = SPI_byte(0xff);
+	if ((data_status & 0x1f) != 5) goto fail;
 	DEASSERT_CARDS;
+	LED_OFF(LED_ACT_bm);
 
-	return (data_status & 0x1f) == 5;
+	return 0;
 
 fail:
 	DEASSERT_CARDS;
+	LED_OFF(LED_ACT_bm);
+	LED_ON(LED_ERR_bm);
 	return 1;
 }
 

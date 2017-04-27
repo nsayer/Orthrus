@@ -11,8 +11,7 @@ TARGET       = Orthrus
 SRC          = $(TARGET).c AES.c sd.c Descriptors.c SCSI.c $(LUFA_SRC_USB) $(LUFA_SRC_USBCLASS)
 CC_FLAGS     = -I. -DUSE_LUFA_CONFIG_HEADER -Wno-main
 LD_FLAGS     =
-AVRDUDE_PROGRAMMER = usbtiny
-AVRDUDE_FLAGS = -B 0.1
+AVRDUDE_PROGRAMMER = atmelice_pdi
 
 include $(LUFA_PATH)/Build/lufa_core.mk
 include $(LUFA_PATH)/Build/lufa_sources.mk

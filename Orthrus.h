@@ -48,7 +48,7 @@ In addition, USARTE0 is the diag port.
 #define CD_A_bm (1<<1)
 #define CD_B_bm (1<<2)
 #define CD_MASK (CD_A_bm | CD_B_bm)
-#define CD_STATE (PORTC.IN & CD_MASK)
+#define CD_STATE (!(PORTC.IN & CD_MASK))
 
 // Assert the card CS line, 0 for A, 1 for B
 #define ASSERT_CARD(x) (PORTC.OUTCLR = ~((x)?CS_B_bm:CS_A_bm))

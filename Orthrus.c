@@ -353,6 +353,7 @@ bool CALLBACK_MS_Device_SCSICommandReceived(USB_ClassInfo_MS_Device_t* const MSI
 
 void __ATTR_NORETURN__ main(void) {
 
+#if 0
 	// Run the CPU at 32 MHz.
 	OSC.CTRL = OSC_RC32MEN_bm;
 	while(!(OSC.STATUS & OSC_RC32MRDY_bm)) ; // wait for it.
@@ -363,18 +364,27 @@ void __ATTR_NORETURN__ main(void) {
 	OSC.DFLLCTRL = OSC_RC32MCREF_USBSOF_gc; // correct the 32 MHz oscillator from USB SOF.
 	OSC.PLLCTRL = OSC_PLLSRC_RC32M_gc | 6; // The PLL output is 6 times the input, which is 32MHz/4
 	CLK.USBCTRL = CLK_USBSRC_PLL_gc | CLK_USBSEN_bm; // USB is clocked from the PLL.
+#else
+	XMEGACLK_StartPLL(CLOCK_SRC_INT_RC2MHZ, 2000000, F_CPU);
+	XMEGACLK_SetCPUClockSource(CLOCK_SRC_PLL);
+
+	/* Start the 32MHz internal RC oscillator and start the DFLL to increase it to 48MHz using the USB SOF as a reference */
+	XMEGACLK_StartInternalOscillator(CLOCK_SRC_INT_RC32MHZ);
+	XMEGACLK_StartDFLL(CLOCK_SRC_INT_RC32MHZ, DFLL_REF_INT_USBSOF, F_USB);
+
+#endif
 
 	init_ports();
 	init_timer();
 	init_aes();
 	init_spi();
 
-	USB_Init();
-
 	// Enable all levels of the interrupt controller
 	PMIC.CTRL = PMIC_HILVLEN_bm | PMIC_MEDLVLEN_bm | PMIC_LOLVLEN_bm;
 
 	GlobalInterruptEnable();
+
+	USB_Init();
 
 	unit_active = 0;
 	force_attention = 0;
@@ -385,7 +395,7 @@ void __ATTR_NORETURN__ main(void) {
 	uint8_t led_save = 0;
 	while(1) {
 
-		uint8_t cards_now = !CD_STATE;
+		uint8_t cards_now = CD_STATE;
 
 		if (cards_present ^ cards_now) {
 			// there has been a change. Note it for the future.

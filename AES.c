@@ -41,50 +41,33 @@ in the foreground - no DMA.
 #include "SCSI.h"
 #include "AES.h"
 
-volatile static uint8_t nonce[BLOCKSIZE], pre_ct[VIRTUAL_MEMORY_BLOCK_SIZE];
+volatile static uint8_t key[KEYSIZE], nonce[BLOCKSIZE], pre_ct[VIRTUAL_MEMORY_BLOCK_SIZE];
 static uint16_t pre_ct_tail;
 volatile static uint16_t pre_ct_head;
 
 void init_aes(void) {
 	AES.CTRL |= AES_RESET_bm;
-	// reset and enable the whole DMA system
-	DMA.CTRL |= DMA_RESET_bm;
-	DMA.CTRL |= DMA_ENABLE_bm;
 }
 
-// DMA channel 0 copies the data out to the buffer
-ISR(DMA_CH0_vect) {
-	// move the head pointer forward another block.
-	pre_ct_head += BLOCKSIZE;
-	// if that means we're done, then stop.
+ISR(AES_INT_vect) {
+	for(int i = 0; i < BLOCKSIZE; i++) {
+		pre_ct[pre_ct_head++] = AES.STATE;
+	}
 	if (pre_ct_head >= sizeof(pre_ct)) {
+		AES.INTCTRL = 0; // disable interrupts
 		return;
 	}
-	// increment the counter
 	if (++nonce[sizeof(nonce) - 1] == 0) ++nonce[sizeof(nonce) - 2];
-	// Start the nonce bufer copy process, which is an
-	// enable and a transfer request (done separately just to be sure).
-	DMA.CH1.CTRLA |= DMA_CH_ENABLE_bm;
-	DMA.CH1.CTRLA |= DMA_CH_TRFREQ_bm;
-}
-
-ISR(DMA_CH1_vect) {
-	// enable channel 0
-	DMA.CH0.CTRLA |= DMA_CH_ENABLE_bm;
-	// and kick off AES
+	for(int i = 0; i < BLOCKSIZE; i++) {
+		AES.KEY = key[i];
+		AES.STATE = nonce[i];
+	}
 	AES.CTRL |= AES_START_bm;
 }
-
-// Why is this not defined?
-#ifndef DMA_CH_TRIGSRC_AES_gc
-#define DMA_CH_TRIGSRC_AES_gc (0x04<<0)
-#endif
 
 /*
  * Set up a, AES+DMA mechanism to generate a (disk) block's worth
  * of AES counter mode pre-ciphertext (the stuff you XOR with the
- * data during encryption or decryption). This will go along with
- * our ISRs to facilitate building the buffer in the background.
  */
 void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
 	pre_ct_head = pre_ct_tail = 0;
@@ -93,46 +76,12 @@ void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
 	// The last 2 bytes are the counter - force it to remain zero.
         memcpy((void*)nonce, nonce_in, MIN(nonce_length, sizeof(nonce) - 2));
 
-	// We assume the key is already loaded. Make sure
-	// the rest of the control register is set right
-	// NO - redundant.
-	//AES.CTRL &= ~(AES_DECRYPT_bm | AES_AUTO_bm | AES_XOR_bm);
-
-	// Set up DMA channel 0 to do 16 byte blocks from AES
-	// to our pre_ct, advancing forward every time.
-	DMA.CH0.CTRLB |= DMA_CH_TRNINTLVL_HI_gc;
-	DMA.CH0.TRIGSRC = DMA_CH_TRIGSRC_AES_gc;
-	DMA.CH0.TRFCNT = BLOCKSIZE;
-	// Going from a single address to a constantly moving forward buffer every time
-	DMA.CH1.ADDRCTRL = DMA_CH_SRCRELOAD_NONE_gc | DMA_CH_SRCDIR_FIXED_gc | DMA_CH_DESTRELOAD_NONE_gc | DMA_CH_DESTDIR_INC_gc;
-	DMA.CH0.REPCNT = 0;
-	// Going from the AES state register to our pre_ct buffer
-	DMA.CH0.SRCADDR0 = (uint8_t)(AES.STATE >> 0);
-	DMA.CH0.SRCADDR1 = 0; //(uint8_t)(AES.STATE >> 8);
-	DMA.CH0.SRCADDR2 = 0; //(uint8_t)(AES.STATE >> 16);
-	DMA.CH0.DESTADDR0 = (uint8_t)(((uint16_t)pre_ct) >> 0);
-	DMA.CH0.DESTADDR1 = (uint8_t)(((uint16_t)pre_ct) >> 8);
-	DMA.CH0.DESTADDR2 = 0; //(uint8_t)(((uint16_t)pre_ct) >> 16);
-
-	// Set up DMA channel 1 to do 16 bytes from the nonce buffer to AES,
-	// repeating the same thing every time.
-	DMA.CH1.CTRLB |= DMA_CH_TRNINTLVL_HI_gc;
-	DMA.CH1.TRIGSRC = DMA_CH_TRIGSRC_OFF_gc;
-	DMA.CH1.TRFCNT = BLOCKSIZE;
-	// Going from the same buffer every time to just a single address
-	DMA.CH1.ADDRCTRL = DMA_CH_SRCRELOAD_BLOCK_gc | DMA_CH_SRCDIR_INC_gc | DMA_CH_DESTRELOAD_NONE_gc | DMA_CH_DESTDIR_FIXED_gc;
-	DMA.CH1.REPCNT = 0;
-	// Going from our nonce buffer to the AES state register
-	DMA.CH1.SRCADDR0 = (uint8_t)(((uint16_t)nonce) >> 0);
-	DMA.CH1.SRCADDR1 = (uint8_t)(((uint16_t)nonce) >> 8);
-	DMA.CH1.SRCADDR2 = 0; //(uint8_t)(((uint16_t)nonce) >> 16);
-	DMA.CH1.DESTADDR0 = (uint8_t)(AES.STATE >> 0);
-	DMA.CH1.DESTADDR1 = 0; //(uint8_t)(AES.STATE >> 8);
-	DMA.CH1.DESTADDR2 = 0; //(uint8_t)(AES.STATE >> 16);
-
-	// And go!
-	DMA.CH1.CTRLA |= DMA_CH_ENABLE_bm;
-	DMA.CH1.CTRLA |= DMA_CH_TRFREQ_bm;
+	for(int i = 0; i < BLOCKSIZE; i++) {
+		AES.KEY = key[i];
+		AES.STATE = nonce[i];
+	}
+	AES.INTCTRL = AES_INTLVL_MED_gc; //
+	AES.CTRL |= AES_START_bm;
 }
 
 /*
@@ -153,18 +102,16 @@ uint8_t encrypt_CTR_byte(uint8_t data) {
 /*
  * Copy in the key
  */
-void setKey(uint8_t* key) {
-	for(int i = 0; i < KEYSIZE; i++) {
-		AES.KEY = key[i];
-	}
+void setKey(const uint8_t* inkey) {
+	memcpy((uint8_t*)key, inkey, sizeof(key));
 }
 
 /*
  * For CMAC, we don't use DMA - we just do a block interactively
  */
-static void encrypt_ECB(uint8_t *block) {
-	// Assume the key is loaded already.
+void encrypt_ECB(uint8_t *block) {
 	for(int i = 0; i < BLOCKSIZE; i++) {
+		AES.KEY = key[i];
 		AES.STATE = block[i];
 	}
 	// GO!
@@ -175,7 +122,6 @@ static void encrypt_ECB(uint8_t *block) {
 	for(int i = 0; i < BLOCKSIZE; i++) {
 		block[i] = AES.STATE;
 	}
-	
 }
 
 // This is a CMAC constant related to the key size.

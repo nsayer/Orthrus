@@ -31,7 +31,7 @@
 void init_aes(void);
 
 // Call this to set the key. The buffer is KEYSIZE bytes long.
-void setKey(uint8_t* key);
+void setKey(const uint8_t* key);
 
 // Call this at the very start of a disk transfer (either direction).
 // It will set up things so you can call encrypt_CTR_byte()
