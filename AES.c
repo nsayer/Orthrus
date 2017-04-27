@@ -24,14 +24,13 @@ has two basic purposes:
 
 1. It processes disk blocks with AES counter mode given a BLOCKSIZE-2 sized
 nonce. It does this by creating a disk block size buffer of pre-cipher-text
-for XORing with the incoming data. It creates the buffer using the DMA
-system (channels 0 and 1 alternately) so that as much of the CPU is available
-in the foreground as possible.
+for XORing with the incoming data. It creates the buffer using AES interrupts
+so that as much of the CPU is available in the foreground as possible.
 
 2. It performs AES CMAC operations. These are used in the key derivation process
 as whitening for the entropy generator output, and to derive the WDE key from
 the contents of the two key blocks on the cards. CMAC is done completely
-in the foreground - no DMA.
+in the foreground - no interrupts.
 
 */
 
@@ -67,8 +66,8 @@ ISR(AES_INT_vect) {
 }
 
 /*
- * Set up a, AES+DMA mechanism to generate a (disk) block's worth
- * of AES counter mode pre-ciphertext (the stuff you XOR with the
+ * Set up an interrupt-driven mechanism to generate a (disk) block's worth of AES counter
+ * mode pre-ciphertext (the stuff you XOR with the input to make the output).
  */
 void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
 	pre_ct_head = pre_ct_tail = 0;
@@ -81,14 +80,14 @@ void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
 		AES.KEY = key[i];
 		AES.STATE = nonce[i];
 	}
-	AES.INTCTRL = AES_INTLVL_MED_gc; //
+	AES.INTCTRL = AES_INTLVL_MED_gc; // lower than USB, higher than the uninteresting stuff.
 	AES.CTRL |= AES_START_bm;
 }
 
 /*
- * For CMAC, we don't use DMA - we just do a block interactively
+ * For CMAC, we don't use interrupts - we just do a block interactively
  */
-void encrypt_ECB(uint8_t *block) {
+static void encrypt_ECB(uint8_t *block) {
 	for(int i = 0; i < BLOCKSIZE; i++) {
 		AES.KEY = key[i];
 		AES.STATE = block[i];
