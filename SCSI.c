@@ -116,9 +116,23 @@ bool SCSI_DecodeSCSICommand(USB_ClassInfo_MS_Device_t* const MSInterfaceInfo)
 		case SCSI_CMD_MODE_SENSE_6:
 			CommandSuccess = SCSI_Command_ModeSense_6(MSInterfaceInfo);
 			break;
-		case SCSI_CMD_START_STOP_UNIT:
 		case SCSI_CMD_TEST_UNIT_READY:
+			if (unit_active) {
+				MSInterfaceInfo->State.CommandBlock.DataTransferLength = 0;
+				CommandSuccess = true;
+			} else {
+				SCSI_SET_SENSE(SCSI_SENSE_KEY_NOT_READY,
+					SCSI_ASENSE_MEDIUM_NOT_PRESENT,
+					SCSI_ASENSEQ_NO_QUALIFIER);
+			}
+			break;
 		case SCSI_CMD_PREVENT_ALLOW_MEDIUM_REMOVAL:
+			// No, we can't prevent removal.
+			SCSI_SET_SENSE(SCSI_SENSE_KEY_ILLEGAL_REQUEST,
+		                   SCSI_ASENSE_INVALID_COMMAND,
+		                   SCSI_ASENSEQ_NO_QUALIFIER);
+			break;
+		case SCSI_CMD_START_STOP_UNIT:
 		case SCSI_CMD_VERIFY_10:
 			/* These commands should just succeed, no handling required */
 			if (!SCSI_CheckUnitReady(MSInterfaceInfo)) return false;
@@ -155,7 +169,7 @@ static bool SCSI_CheckUnitReady(USB_ClassInfo_MS_Device_t* const MSInterfaceInfo
                 /* Update SENSE key with a hardware error condition and return command fail */
                 SCSI_SET_SENSE(SCSI_SENSE_KEY_UNIT_ATTENTION,
 				SCSI_ASENSE_OPERATING_CONDITIONS_CHANGED,
-				SCSI_ASENSEQ_REPORTED_LUNS_DATA_HAS_CHANGED);
+				SCSI_ASENSEQ_NO_QUALIFIER);
 
 		MSInterfaceInfo->State.CommandBlock.DataTransferLength = 0;
                 return false;
