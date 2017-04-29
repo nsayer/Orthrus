@@ -47,21 +47,28 @@ static inline uint8_t encrypt_CTR_byte(uint8_t data) {
         return pre_ct[pre_ct_tail++] ^ data;
 }
 
-// Make this "always inline," effectively.
-#define setKey(k) do { memcpy((uint8_t*)key, (k), sizeof(key)); } while(0);
+/*
+ * Store the key. Alas, we can't just set the key in the AES
+ * registers, as it seemingly gets "consumed" in the process
+ * (it winds up corrupted in some way).
+ */
+static inline void setKey(uint8_t *k) ATTR_ALWAYS_INLINE;
+static inline void setKey(uint8_t *k) {
+	memcpy((uint8_t*)key, (k), sizeof(key));
+}
 
 // set up the AES+DMA subsystem.
 void init_aes(void);
 
 // Call this at the very start of a disk transfer (either direction).
 // It will set up things so you can call encrypt_CTR_byte()
-//  VIRTUAL_MEMORY_BLOCK_SIZE times.
+// VIRTUAL_MEMORY_BLOCK_SIZE times.
 void init_CTR(uint8_t* nonce, size_t nonce_length);
 
 // Call this with each byte read prior to writing. It's misnamed - it
 // actually does either encryption or decryption in counter mode.
 uint8_t encrypt_CTR_byte(uint8_t data);
 
-// Perform an AES CMAC on the given buffer.
+// Perform an AES CMAC on the given buffer (call setKey() first).
 void CMAC(uint8_t *buf, size_t buf_length, uint8_t *sigbuf);
 

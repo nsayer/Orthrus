@@ -24,13 +24,13 @@ has two basic purposes:
 
 1. It processes disk blocks with AES counter mode given a BLOCKSIZE-2 sized
 nonce. It does this by creating a disk block size buffer of pre-cipher-text
-for XORing with the incoming data. It creates the buffer using AES interrupts
+for XORing with the incoming data. It creates the buffer using DMA
 so that as much of the CPU is available in the foreground as possible.
 
 2. It performs AES CMAC operations. These are used in the key derivation process
 as whitening for the entropy generator output, and to derive the WDE key from
 the contents of the two key blocks on the cards. CMAC is done completely
-in the foreground - no interrupts.
+in the foreground - no interrupts or DMA.
 
 */
 
@@ -69,22 +69,28 @@ ISR(DMA_CH1_vect) {
 }
 
 static inline void ch01_dma_common(void) {
+	// if BOTH channels aren't finished, then don't do anything yet.
 	if ((!(DMA.CH0.CTRLB & DMA_CH_TRNIF_bm)) || (!(DMA.CH1.CTRLB & DMA_CH_TRNIF_bm))) {
 		return;
 	}
+	// Acknowledge both channels
 	DMA.CH0.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm;
 	DMA.CH1.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm;
+	// And kick off the AES process.
 	DMA.CH2.CTRLA |= DMA_CH_ENABLE_bm;
 	AES.CTRL |= AES_START_bm;
 }
 
 ISR(DMA_CH2_vect) {
+	// Acknowledge the transfer
 	DMA.CH2.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm;
+
 	pre_ct_head += BLOCKSIZE;
 	if (pre_ct_head >= sizeof(pre_ct)) {
 		// we're done.
 		return;
 	}
+
 	// Increment the counter
 	if (++nonce[sizeof(nonce) - 1] == 0) ++nonce[sizeof(nonce) - 2];
 
@@ -106,6 +112,7 @@ void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
 	// The last 2 bytes are the counter - force it to remain zero.
         memcpy((void*)nonce, nonce_in, MIN(nonce_length, sizeof(nonce) - 2));
 
+	// Channel zero's job is to copy the nonce into the AES state memory
 	DMA.CH0.CTRLA |= DMA_CH_ENABLE_bm;
 	DMA.CH0.CTRLB |= DMA_CH_ERRINTLVL_MED_gc | DMA_CH_TRNINTLVL_MED_gc; // lower than USB, higher than background
 	DMA.CH0.TRIGSRC = DMA_CH_TRIGSRC_OFF_gc;
@@ -122,6 +129,7 @@ void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
 	DMA.CH0.DESTADDR1 = (uint8_t)(((uint16_t)(&AES.STATE)) >> 8);
 	DMA.CH0.DESTADDR2 = 0;
 
+	// Channel one's job is to copy the key into the AES key memory
 	DMA.CH1.CTRLA |= DMA_CH_ENABLE_bm;
 	DMA.CH1.CTRLB |= DMA_CH_ERRINTLVL_MED_gc | DMA_CH_TRNINTLVL_MED_gc; // lower than USB, higher than background
 	DMA.CH1.TRIGSRC = DMA_CH_TRIGSRC_OFF_gc;
@@ -138,6 +146,7 @@ void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
 	DMA.CH1.DESTADDR1 = (uint8_t)(((uint16_t)(&AES.KEY)) >> 8);
 	DMA.CH1.DESTADDR2 = 0;
 
+	// Channel two's job is to copy the AES result out to the pre-ciphertext buffer.
 	DMA.CH2.CTRLA |= DMA_CH_ENABLE_bm;
 	DMA.CH2.CTRLB |= DMA_CH_ERRINTLVL_MED_gc | DMA_CH_TRNINTLVL_MED_gc; // lower than USB, higher than background
 	DMA.CH2.TRIGSRC = DMA_CH_TRIGSRC_AES_gc;
@@ -154,13 +163,13 @@ void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
 	DMA.CH2.DESTADDR1 = (uint8_t)(((uint16_t)pre_ct) >> 8);
 	DMA.CH2.DESTADDR2 = 0;
 
-	// Start copying the key and nonce.
+	// Start copying the key and nonce for the first block.
 	DMA.CH0.CTRLA |= DMA_CH_TRFREQ_bm;
 	DMA.CH1.CTRLA |= DMA_CH_TRFREQ_bm;
 }
 
 /*
- * For CMAC, we don't use interrupts - we just do a block interactively
+ * For CMAC, we don't use DMA - we just do a block interactively
  */
 static void encrypt_ECB(uint8_t *block) {
 	for(int i = 0; i < BLOCKSIZE; i++) {
