@@ -229,6 +229,7 @@ void init_timer(void) {
 	TCC0.PER = TC_BASE - 1;
 }
 
+#ifdef DEBUG
 // For 9600 baud at 32 MHz, BSEL = 12 BSCALE = 4 CLK2X = 0
 #define BSEL (12)
 #define BSCALE (4)
@@ -264,35 +265,50 @@ void diag_tx(uint8_t data) {
 	}
 	USARTE0.CTRLA = USART_DREINTLVL_LO_gc; // force on the DRE interrupt.
 }
+#endif
 
 void init_ports(void) {
 	// start with LEDs and card power off - do this before changing direction.
 	CARD_POWER_OFF;
 	LED_OFF(LED_RDY_bm | LED_ACT_bm | LED_ERR_bm);
 	// LED and cardpower pins are output, switch is input.
-	PORTA.DIR = (1<<0) | (1<<1) | (1<<2) | (1<<4);
+	PORTA.DIRSET = (1<<0) | (1<<1) | (1<<2) | (1<<4);
 	// pull-up on switch pin
 	PORTA.PIN3CTRL = PORT_OPC_PULLUP_gc;
 
-	// Start with the cards deasserted - do this before changin direction.
-	DEASSERT_CARDS;
+// don't do this for <v2.0.2.
+#if 0
+#ifdef USART_SPI
+	// shift USART0 into place over the SPI pins
+	PORTC.REMAP = PORT_USART0_bm;
+#else
+	// swap MOSI and SCK to match the traditional USART wiring scheme,
+	// which is what the hardware uses.
+	PORTC.REMAP = PORT_SPI_bm;
+#endif
+#endif
+
+	// Start with the cards deasserted - do this before changing direction.
+	//DEASSERT_CARDS;
 	// card select pins, MOSI and SCK are output
-	PORTC.DIR = (1<<3) | (1<<4) | (1<<5) | (1<<7);
+	//PORTC.DIRSET = (1<<3) | (1<<4) | (1<<5) | (1<<7);
 	// pull-up on MISO and the two card detect pins
 	PORTCFG.MPCMASK = (1<<1) | (1<<2) | (1<<6);
 	PORTC.PIN1CTRL = PORT_OPC_PULLUP_gc;
 
 	PORTD.DIR = 0; // all input.
 
+#ifdef DEBUG
 	diag_tx_head = diag_tx_tail = 0;
 	// PE3 is TX_DIAG - output
-	PORTE.DIR = (1<<3);
 	PORTE.OUTSET = (1<<3);
-	USARTE0.CTRLA = USART_DREINTLVL_OFF_gc;
+	PORTE.DIRSET = (1<<3);
+	USARTE0.CTRLA = USART_DREINTLVL_OFF_gc; // for now - when we fill the buf, we turn it on.
 	USARTE0.CTRLB = USART_TXEN_bm;
 	USARTE0.CTRLC = USART_CHSIZE_8BIT_gc;
 	USARTE0.BAUDCTRLA = (uint8_t)BSEL;
-	USARTE0.BAUDCTRLB = (BSCALE << USART_BSCALE_gp) | (((uint8_t)BSEL) >> 8);
+	USARTE0.BAUDCTRLB = (BSCALE << USART_BSCALE_gp) | ((uint8_t)(BSEL >> 8));
+#endif
 
 }
 
@@ -327,7 +343,6 @@ USB_ClassInfo_MS_Device_t Disk_MS_Interface =
 void EVENT_USB_Device_ConfigurationChanged(void)
 {
         MS_Device_ConfigureEndpoints(&Disk_MS_Interface);
-
 }
 
 /** Event handler for the library USB Control Request reception event. */
@@ -344,10 +359,8 @@ bool CALLBACK_MS_Device_SCSICommandReceived(USB_ClassInfo_MS_Device_t* const MSI
 {
         bool CommandSuccess;
 
-	LED_OFF(LED_ERR_bm);
         CommandSuccess = SCSI_DecodeSCSICommand(MSInterfaceInfo);
 
-	if (!CommandSuccess) LED_ON(LED_ERR_bm);
         return CommandSuccess;
 }
 
@@ -376,9 +389,9 @@ void __ATTR_NORETURN__ main(void) {
 	CLK.USBCTRL = CLK_USBSRC_PLL_gc | CLK_USBSEN_bm; // USB is clocked from the PLL.
 
 	init_ports();
+	init_spi();
 	init_timer();
 	init_aes();
-	init_spi();
 
 	// Enable all levels of the interrupt controller
 	PMIC.CTRL = PMIC_HILVLEN_bm | PMIC_MEDLVLEN_bm | PMIC_LOLVLEN_bm;
@@ -393,7 +406,6 @@ void __ATTR_NORETURN__ main(void) {
 	LED_OFF(LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
 	uint8_t button_state = 0, ignoring_button = 0;
 	uint16_t button_started = 0;
-	uint8_t led_save = 0;
 	while(1) {
 
 		uint8_t cards_now = CD_STATE;
@@ -408,6 +420,7 @@ void __ATTR_NORETURN__ main(void) {
 				button_state = 0;
 				if (init()) {
 					LED_ON(LED_ERR_bm);
+					CARD_POWER_OFF;
 					unit_active = 0;
 					force_attention = 1;
 				} else {
@@ -422,7 +435,6 @@ void __ATTR_NORETURN__ main(void) {
 				force_attention = 1;
 				// lights out!
 				LED_OFF(LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
-				// XXX tell the host it's gone
 			}
 		}
 
@@ -443,7 +455,10 @@ void __ATTR_NORETURN__ main(void) {
 				ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
 					button_started = milli_timer;
 				}
-				led_save = PORTA.OUT & (LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
+				// forceably unmount.
+				LED_OFF(LED_RDY_bm);
+				unit_active = 0;
+				force_attention = 1;
 			} else {
 				// They let the button up. There's two possibilities:
 				// Either they let it up before we blew it up, or they
@@ -452,8 +467,11 @@ void __ATTR_NORETURN__ main(void) {
 				// when we formatted the disk we marked the button as
 				// being in an ignored state. We can now undo that.
 				if (!ignoring_button) {
-					LED_OFF(LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
-					LED_ON(led_save);
+					unit_active = 1;
+					force_attention = 1;
+					LED_OFF(LED_ERR_bm);
+					// go back to showing ready.
+					LED_ON(LED_RDY_bm);
 				}
 				ignoring_button = 0;
 			}
@@ -466,6 +484,10 @@ void __ATTR_NORETURN__ main(void) {
 				now = milli_timer;
 			}
 			if (now - button_started >= 5000) {
+				if (PORTA.OUT & CRDPWR_bm) {
+					// The cards are off. Initialize them first.
+					init();
+				}
 				if (!initVolume()) {
 					// success!
 					LED_OFF(LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);

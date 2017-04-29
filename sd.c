@@ -30,9 +30,6 @@
 #include "Orthrus.h"
 #include "SCSI.h"
 
-#define SPI_SLOW 0
-#define SPI_FAST 1
-
 #define INIT_TIMEOUT 2000
 #define CMD_TIMEOUT 300
 #define RW_TIMEOUT 500
@@ -48,27 +45,49 @@
 #define R1_PARAM_ERR _BV(6)
 // bit 7 is always 0.
 
-static void set_speed(uint8_t speed) {
-	switch(speed) {
-		case SPI_SLOW:
-			// 250 kHz - 16 MHz / 64
-			SPIC.CTRL = SPI_ENABLE_bm | SPI_MASTER_bm | SPI_MODE_0_gc | SPI_PRESCALER_DIV128_gc;
-			break;
-		case SPI_FAST:
-			// RAMMING SPEED!
-			SPIC.CTRL = SPI_CLK2X_bm | SPI_ENABLE_bm | SPI_MASTER_bm | SPI_MODE_0_gc | SPI_PRESCALER_DIV4_gc;
-			break;
-	}
+static inline void set_speed_slow(void) ATTR_ALWAYS_INLINE;
+static inline void set_speed_slow(void) {
+	// 250 kHz
+#ifdef USART_SPI
+	USARTC0.BAUDCTRLA = 63; // 32 MHz / 2*250 kHz - 1
+	USARTC0.BAUDCTRLB = 0;
+#else
+	SPIC.CTRL = SPI_ENABLE_bm | SPI_MASTER_bm | SPI_MODE_0_gc | SPI_PRESCALER_DIV128_gc;
+#endif
+}
+static inline void set_speed_fast(void) ATTR_ALWAYS_INLINE;
+static inline void set_speed_fast(void) {
+	// RAMMING SPEED!
+#ifdef USART_SPI
+	USARTC0.BAUDCTRLA = 0;
+	USARTC0.BAUDCTRLB = 0;
+#else
+	SPIC.CTRL = SPI_CLK2X_bm | SPI_ENABLE_bm | SPI_MASTER_bm | SPI_MODE_0_gc | SPI_PRESCALER_DIV4_gc;
+#endif
 }
 
 void init_spi(void) {
-	set_speed(SPI_SLOW);
+#ifdef USART_SPI
+	USARTC0.CTRLC = USART_CMODE_MSPI_gc; // SPI Master mode
+	USARTC0.CTRLB = USART_TXEN_bm | USART_RXEN_bm;
+	USARTC0.CTRLA = 0; // no interrupts
+#endif
+	set_speed_slow();
 }
 
-static uint8_t SPI_byte(uint8_t data) {
+static inline uint8_t SPI_byte(uint8_t data) ATTR_ALWAYS_INLINE;
+static inline uint8_t SPI_byte(uint8_t data) {
+#ifdef USART_SPI
+	while (!(USARTC0.STATUS & USART_DREIF_bm)) ; // just an assertion (no-op)
+	USARTC0.DATA = data;
+	while (!(USARTC0.STATUS & USART_TXCIF_bm)) ; // wait for tx complete
+	while (!(USARTC0.STATUS & USART_RXCIF_bm)) ; // just an assertion (no-op)
+	return USARTC0.DATA;
+#else
 	SPIC.DATA = data;
 	while(!(SPIC.STATUS & SPI_IF_bm));
 	return SPIC.DATA;
+#endif
 }
 
 static uint8_t waitForStart(uint16_t timeout) {
@@ -217,7 +236,7 @@ uint8_t init(void) {
 		if (!CD_STATE) return 1; // fail
 	}
 
-	set_speed(SPI_SLOW);
+	set_speed_slow();
 	// send 80 slow clocks.
 	for(int i = 0; i < 10; i++) {
 		SPI_byte(0xff);
@@ -235,7 +254,7 @@ uint8_t init(void) {
 
 	if (init_card(1)) return 1; // card B
 
-	set_speed(SPI_FAST);
+	set_speed_fast();
 
 	uint32_t size_a, size_b;
 	if (getCardSize(0, &size_a)) return 1;
@@ -269,15 +288,31 @@ uint8_t volumeReadBlock(uint32_t blocknum) {
 			if (Endpoint_WaitUntilReady())
 				return 1;
 		}
-		SPIC.DATA = 0xff; // write the initial (garbage) byte to kick it off
+#ifdef USART_SPI
+		USARTC0.DATA = 0xff; // write the initial byte
+#else
+		SPIC.DATA = 0xff; // write the initial byte
+#endif
 		for(int j = 0; j < MASS_STORAGE_IO_EPSIZE - 1; j++) {
+#ifdef USART_SPI
+			while(!(USARTC0.STATUS & USART_DREIF_bm)); // wait for ready
+			USARTC0.DATA = 0xff;
+			while(!(USARTC0.STATUS & USART_RXCIF_bm)); // wait to read
+			uint8_t readByte = USARTC0.DATA;
+#else
 			while(!(SPIC.STATUS & SPI_IF_bm)) ; // wait for it
 			uint8_t readByte = SPIC.DATA;
 			SPIC.DATA = 0xff; // start the next one right away in the background.
+#endif
 			Endpoint_Write_8(encrypt_CTR_byte(readByte));
 		}
+#ifdef USART_SPI
+		while(!(USARTC0.STATUS & USART_RXCIF_bm)); // wait for last one
+		uint8_t readByte = USARTC0.DATA;
+#else
 		while(!(SPIC.STATUS & SPI_IF_bm)) ; // wait for the last one.
 		uint8_t readByte = SPIC.DATA;
+#endif
 		Endpoint_Write_8(encrypt_CTR_byte(readByte));
 	}
 
@@ -320,13 +355,26 @@ uint8_t volumeWriteBlock(uint32_t blocknum) {
 		}
 		uint8_t value = encrypt_CTR_byte(Endpoint_Read_8());
 		for(int j = 0; j < MASS_STORAGE_IO_EPSIZE - 1; j++) {
+#ifdef USART_SPI
+			USARTC0.DATA = value;
+#else
 			SPIC.DATA = value;
+#endif
 			value = encrypt_CTR_byte(Endpoint_Read_8());
+#ifdef USART_SPI
+			while(!(USARTC0.STATUS & USART_DREIF_bm)) ; // wait for ready
+#else
 			while(!(SPIC.STATUS & SPI_IF_bm)) ; // wait for it to go
+#endif
 		}
 		// Do the last one
+#ifdef USART_SPI
+		USARTC0.DATA = value;
+		while(!(USARTC0.STATUS & USART_TXCIF_bm)) ; // wait for transmit complete
+#else
 		SPIC.DATA = value;
 		while(!(SPIC.STATUS & SPI_IF_bm)) ; // wait for it to go
+#endif
 	}
 
 	SPI_byte(0xff); // CRC

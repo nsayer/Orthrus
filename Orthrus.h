@@ -25,9 +25,13 @@ PC1 - !CDA - card detect A - requires pull-up
 PC2 - !CDB - card detect B - requires pull-up
 PC3 - !CSA - card select A
 PC4 - !CSB - card select B
-PC5 - MOSI
+PC5 - SCK
 PC6 - MISO
-PC7 - SCK
+PC7 - MOSI
+
+Note that MOSI and SCK are swapped from normal SPI wiring. For normal
+SPI, remap them with REMAP.PORT_SPI_bm. For USART0 in SPI master mode,
+remap the USART with REMAP.PORT_USART0_bm.
 
 PA0 - LED_RDY - the ready LED
 PA1 - LED_ACT - the activity LED
@@ -37,9 +41,15 @@ PA4 - !CARDEN - power on/off for the SD cards
 
 PD0 - RNG - The output from the entropy generator
 
-In addition, USARTE0 is the diag port.
+In addition, USARTE0 is the diag port (currently unused).
 
 */
+
+// To use USART0 in SPI Master mode instead of traditional SPI, turn this on.
+// (Since it's faster, you probably want it on... unless you don't)
+//#define USART_SPI
+// Turn on the diagnostic output port. Currently, it doesn't do anything anyway, though.
+//#define DEBUG
 
 #include <avr/io.h>
 
@@ -65,8 +75,10 @@ In addition, USARTE0 is the diag port.
 #define SWITCH_STATE (PORTA.IN & SW_bm)
 
 #define CRDPWR_bm (1<<4)
-#define CARD_POWER_OFF (PORTA.OUTSET = CRDPWR_bm)
-#define CARD_POWER_ON (PORTA.OUTCLR = CRDPWR_bm)
+// Turn the card power off and make all card logic lines inputs (hi impedance)
+#define CARD_POWER_OFF do { PORTC.DIRCLR = (1<<3) | (1<<4) | (1<<5) | (1<<7); PORTA.OUTSET = CRDPWR_bm; } while(0)
+// Turn the card power on and make the correct card logic lines outputs and force both !CS lines high
+#define CARD_POWER_ON do { DEASSERT_CARDS; PORTC.DIRSET = (1<<3) | (1<<4) | (1<<5) | (1<<7); PORTA.OUTCLR = CRDPWR_bm; } while(0)
 
 #define RNG_bm (1<<0)
 #define RNG_STATE (PORTD.IN & RNG_bm)
