@@ -48,6 +48,7 @@ in the foreground - no interrupts or DMA.
 volatile uint8_t key[KEYSIZE], pre_ct[VIRTUAL_MEMORY_BLOCK_SIZE];
 volatile uint16_t pre_ct_tail, pre_ct_head;
 volatile static uint8_t nonce[BLOCKSIZE];
+volatile static uint8_t ch0_done, ch1_done;
 
 void init_aes(void) {
 	AES.CTRL |= AES_RESET_bm;
@@ -56,26 +57,28 @@ void init_aes(void) {
 	DMA.CTRL |= DMA_RESET_bm;
 	while ((DMA.CTRL & DMA_RESET_bm) != 0) ;
 	DMA.CTRL |= DMA_ENABLE_bm;
+	ch0_done = ch1_done = 0;
 }
 
 static inline void ch01_dma_common(void) ATTR_ALWAYS_INLINE;
 
 ISR(DMA_CH0_vect) {
+	DMA.CH0.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm; // ACK
+	ch0_done = 1;
+	if (!ch1_done) return;
 	ch01_dma_common();
 }
 
 ISR(DMA_CH1_vect) {
+	DMA.CH1.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm; // ACK
+	ch1_done = 1;
+	if (!ch0_done) return;
 	ch01_dma_common();
 }
 
 static inline void ch01_dma_common(void) {
-	// if BOTH channels aren't finished, then don't do anything yet.
-	if ((!(DMA.CH0.CTRLB & DMA_CH_TRNIF_bm)) || (!(DMA.CH1.CTRLB & DMA_CH_TRNIF_bm))) {
-		return;
-	}
-	// Acknowledge both channels
-	DMA.CH0.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm;
-	DMA.CH1.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm;
+	// reset our marks for next time.
+	ch0_done = ch1_done = 0;
 	// And kick off the AES process.
 	DMA.CH2.CTRLA |= DMA_CH_ENABLE_bm;
 	AES.CTRL |= AES_START_bm;
