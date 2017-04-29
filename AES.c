@@ -40,33 +40,63 @@ in the foreground - no interrupts.
 #include "SCSI.h"
 #include "AES.h"
 
-volatile uint8_t key[KEYSIZE], pre_ct[VIRTUAL_MEMORY_BLOCK_SIZE];
+// Why is this not defined?
+#ifndef DMA_CH_TRIGSRC_AES_gc
+#define DMA_CH_TRIGSRC_AES_gc (0x04<<0)
+#endif
 
-volatile static uint8_t nonce[BLOCKSIZE];
+volatile uint8_t key[KEYSIZE], pre_ct[VIRTUAL_MEMORY_BLOCK_SIZE];
 volatile uint16_t pre_ct_tail, pre_ct_head;
+volatile static uint8_t nonce[BLOCKSIZE];
 
 void init_aes(void) {
 	AES.CTRL |= AES_RESET_bm;
+	// reset and enable the whole DMA system
+	DMA.CTRL = 0;
+	DMA.CTRL |= DMA_RESET_bm;
+	while ((DMA.CTRL & DMA_RESET_bm) != 0) ;
+	DMA.CTRL |= DMA_ENABLE_bm;
 }
 
-ISR(AES_INT_vect) {
-	for(int i = 0; i < BLOCKSIZE; i++) {
-		pre_ct[pre_ct_head++] = AES.STATE;
-	}
-	if (pre_ct_head >= sizeof(pre_ct)) {
-		AES.INTCTRL = 0; // disable interrupts
+static inline void ch01_dma_common(void) ATTR_ALWAYS_INLINE;
+
+ISR(DMA_CH0_vect) {
+	ch01_dma_common();
+}
+
+ISR(DMA_CH1_vect) {
+	ch01_dma_common();
+}
+
+static inline void ch01_dma_common(void) {
+	if ((!(DMA.CH0.CTRLB & DMA_CH_TRNIF_bm)) || (!(DMA.CH1.CTRLB & DMA_CH_TRNIF_bm))) {
 		return;
 	}
-	if (++nonce[sizeof(nonce) - 1] == 0) ++nonce[sizeof(nonce) - 2];
-	for(int i = 0; i < BLOCKSIZE; i++) {
-		AES.KEY = key[i];
-		AES.STATE = nonce[i];
-	}
+	DMA.CH0.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm;
+	DMA.CH1.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm;
+	DMA.CH2.CTRLA |= DMA_CH_ENABLE_bm;
 	AES.CTRL |= AES_START_bm;
 }
 
+ISR(DMA_CH2_vect) {
+	DMA.CH2.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm;
+	pre_ct_head += BLOCKSIZE;
+	if (pre_ct_head >= sizeof(pre_ct)) {
+		// we're done.
+		return;
+	}
+	// Increment the counter
+	if (++nonce[sizeof(nonce) - 1] == 0) ++nonce[sizeof(nonce) - 2];
+
+	// And turn on the key and nonce transfers.
+	DMA.CH0.CTRLA |= DMA_CH_ENABLE_bm;
+	DMA.CH1.CTRLA |= DMA_CH_ENABLE_bm;
+	DMA.CH0.CTRLA |= DMA_CH_TRFREQ_bm;
+	DMA.CH1.CTRLA |= DMA_CH_TRFREQ_bm;
+}
+
 /*
- * Set up an interrupt-driven mechanism to generate a (disk) block's worth of AES counter
+ * Set up a DMA-driven mechanism to generate a (disk) block's worth of AES counter
  * mode pre-ciphertext (the stuff you XOR with the input to make the output).
  */
 void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
@@ -76,12 +106,57 @@ void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
 	// The last 2 bytes are the counter - force it to remain zero.
         memcpy((void*)nonce, nonce_in, MIN(nonce_length, sizeof(nonce) - 2));
 
-	for(int i = 0; i < BLOCKSIZE; i++) {
-		AES.KEY = key[i];
-		AES.STATE = nonce[i];
-	}
-	AES.INTCTRL = AES_INTLVL_MED_gc; // lower than USB, higher than the uninteresting stuff.
-	AES.CTRL |= AES_START_bm;
+	DMA.CH0.CTRLA |= DMA_CH_ENABLE_bm;
+	DMA.CH0.CTRLB |= DMA_CH_ERRINTLVL_MED_gc | DMA_CH_TRNINTLVL_MED_gc; // lower than USB, higher than background
+	DMA.CH0.TRIGSRC = DMA_CH_TRIGSRC_OFF_gc;
+	DMA.CH0.TRFCNTL = BLOCKSIZE;
+	DMA.CH0.TRFCNTH = 0;
+	// Going from the same block buffer to a single address every time
+	DMA.CH0.ADDRCTRL = DMA_CH_SRCRELOAD_BLOCK_gc | DMA_CH_SRCDIR_INC_gc | DMA_CH_DESTRELOAD_NONE_gc | DMA_CH_DESTDIR_FIXED_gc;
+	DMA.CH0.REPCNT = 0;
+	// Copy the key into AES.
+	DMA.CH0.SRCADDR0 = (uint8_t)(((uint16_t)nonce) >> 0);
+	DMA.CH0.SRCADDR1 = (uint8_t)(((uint16_t)nonce) >> 8);
+	DMA.CH0.SRCADDR2 = 0;
+	DMA.CH0.DESTADDR0 = (uint8_t)(((uint16_t)(&AES.STATE)) >> 0);
+	DMA.CH0.DESTADDR1 = (uint8_t)(((uint16_t)(&AES.STATE)) >> 8);
+	DMA.CH0.DESTADDR2 = 0;
+
+	DMA.CH1.CTRLA |= DMA_CH_ENABLE_bm;
+	DMA.CH1.CTRLB |= DMA_CH_ERRINTLVL_MED_gc | DMA_CH_TRNINTLVL_MED_gc; // lower than USB, higher than background
+	DMA.CH1.TRIGSRC = DMA_CH_TRIGSRC_OFF_gc;
+	DMA.CH1.TRFCNTL = BLOCKSIZE;
+	DMA.CH1.TRFCNTH = 0;
+	// Going from the same block buffer to a single address every time
+	DMA.CH1.ADDRCTRL = DMA_CH_SRCRELOAD_BLOCK_gc | DMA_CH_SRCDIR_INC_gc | DMA_CH_DESTRELOAD_NONE_gc | DMA_CH_DESTDIR_FIXED_gc;
+	DMA.CH1.REPCNT = 0;
+	// Copy the nonce into AES.
+	DMA.CH1.SRCADDR0 = (uint8_t)(((uint16_t)key) >> 0);
+	DMA.CH1.SRCADDR1 = (uint8_t)(((uint16_t)key) >> 8);
+	DMA.CH1.SRCADDR2 = 0;
+	DMA.CH1.DESTADDR0 = (uint8_t)(((uint16_t)(&AES.KEY)) >> 0);
+	DMA.CH1.DESTADDR1 = (uint8_t)(((uint16_t)(&AES.KEY)) >> 8);
+	DMA.CH1.DESTADDR2 = 0;
+
+	DMA.CH2.CTRLA |= DMA_CH_ENABLE_bm;
+	DMA.CH2.CTRLB |= DMA_CH_ERRINTLVL_MED_gc | DMA_CH_TRNINTLVL_MED_gc; // lower than USB, higher than background
+	DMA.CH2.TRIGSRC = DMA_CH_TRIGSRC_AES_gc;
+	DMA.CH2.TRFCNTL = BLOCKSIZE;
+	DMA.CH2.TRFCNTH = 0;
+	// Going from a single address to a constantly moving forward buffer every time
+	DMA.CH2.ADDRCTRL = DMA_CH_SRCRELOAD_NONE_gc | DMA_CH_SRCDIR_FIXED_gc | DMA_CH_DESTRELOAD_NONE_gc | DMA_CH_DESTDIR_INC_gc;
+	DMA.CH2.REPCNT = 0;
+	// Copy the pre-ciphertext out of AES.
+	DMA.CH2.SRCADDR0 = (uint8_t)(((uint16_t)(&AES.STATE)) >> 0);
+	DMA.CH2.SRCADDR1 = (uint8_t)(((uint16_t)(&AES.STATE)) >> 8);
+	DMA.CH2.SRCADDR2 = 0;
+	DMA.CH2.DESTADDR0 = (uint8_t)(((uint16_t)pre_ct) >> 0);
+	DMA.CH2.DESTADDR1 = (uint8_t)(((uint16_t)pre_ct) >> 8);
+	DMA.CH2.DESTADDR2 = 0;
+
+	// Start copying the key and nonce.
+	DMA.CH0.CTRLA |= DMA_CH_TRFREQ_bm;
+	DMA.CH1.CTRLA |= DMA_CH_TRFREQ_bm;
 }
 
 /*
