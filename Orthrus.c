@@ -78,7 +78,7 @@ static uint8_t randomByte(void) {
 // this value is actually less because we also pull a random key
 // block for the CMAC. Since the key and block are the same size,
 // we can just subtract 1 from the value we want.
-#define ENTROPY_EXPANSION (4 - 1)
+#define ENTROPY_EXPANSION (8 - 1)
 
 void fillRandomBuffer(uint8_t *buf) {
 	uint8_t keyblock[KEYSIZE];
@@ -288,10 +288,6 @@ void init_ports(void) {
 #endif
 #endif
 
-	// Start with the cards deasserted - do this before changing direction.
-	//DEASSERT_CARDS;
-	// card select pins, MOSI and SCK are output
-	//PORTC.DIRSET = (1<<3) | (1<<4) | (1<<5) | (1<<7);
 	// pull-up on MISO and the two card detect pins
 	PORTCFG.MPCMASK = (1<<1) | (1<<2) | (1<<6);
 	PORTC.PIN1CTRL = PORT_OPC_PULLUP_gc;
