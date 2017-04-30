@@ -48,7 +48,6 @@ in the foreground - no interrupts or DMA.
 volatile uint8_t key[KEYSIZE], pre_ct[VIRTUAL_MEMORY_BLOCK_SIZE];
 volatile uint16_t pre_ct_tail, pre_ct_head;
 volatile static uint8_t nonce[BLOCKSIZE];
-volatile static uint8_t ch0_done, ch1_done;
 
 void init_aes(void) {
 	AES.CTRL |= AES_RESET_bm;
@@ -57,7 +56,6 @@ void init_aes(void) {
 	DMA.CTRL |= DMA_RESET_bm;
 	while ((DMA.CTRL & DMA_RESET_bm) != 0) ;
 	DMA.CTRL |= DMA_ENABLE_bm;
-	ch0_done = ch1_done = 0;
 
 	// Channel zero's job is to copy the nonce into the AES state memory
 	DMA.CH0.TRIGSRC = DMA_CH_TRIGSRC_OFF_gc;
