@@ -58,69 +58,10 @@ void init_aes(void) {
 	while ((DMA.CTRL & DMA_RESET_bm) != 0) ;
 	DMA.CTRL |= DMA_ENABLE_bm;
 	ch0_done = ch1_done = 0;
-}
-
-static inline void ch01_dma_common(void) ATTR_ALWAYS_INLINE;
-
-ISR(DMA_CH0_vect) {
-	DMA.CH0.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm; // ACK
-	ch0_done = 1;
-	if (!ch1_done) return;
-	ch01_dma_common();
-}
-
-ISR(DMA_CH1_vect) {
-	DMA.CH1.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm; // ACK
-	ch1_done = 1;
-	if (!ch0_done) return;
-	ch01_dma_common();
-}
-
-static inline void ch01_dma_common(void) {
-	// reset our marks for next time.
-	ch0_done = ch1_done = 0;
-	// And kick off the AES process.
-	DMA.CH2.CTRLA |= DMA_CH_ENABLE_bm;
-	AES.CTRL |= AES_START_bm;
-}
-
-ISR(DMA_CH2_vect) {
-	// Acknowledge the transfer
-	DMA.CH2.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm;
-
-	pre_ct_head += BLOCKSIZE;
-	if (pre_ct_head >= sizeof(pre_ct)) {
-		// we're done.
-		return;
-	}
-
-	// Increment the counter
-	if (++nonce[sizeof(nonce) - 1] == 0) ++nonce[sizeof(nonce) - 2];
-
-	// And turn on the key and nonce transfers.
-	DMA.CH0.CTRLA |= DMA_CH_ENABLE_bm;
-	DMA.CH1.CTRLA |= DMA_CH_ENABLE_bm;
-	DMA.CH0.CTRLA |= DMA_CH_TRFREQ_bm;
-	DMA.CH1.CTRLA |= DMA_CH_TRFREQ_bm;
-}
-
-/*
- * Set up a DMA-driven mechanism to generate a (disk) block's worth of AES counter
- * mode pre-ciphertext (the stuff you XOR with the input to make the output).
- */
-void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
-	pre_ct_head = pre_ct_tail = 0;
-	// Copy in the nonce, zero-filling first.
-        memset((void*)nonce, 0, sizeof(nonce));
-	// The last 2 bytes are the counter - force it to remain zero.
-        memcpy((void*)nonce, nonce_in, MIN(nonce_length, sizeof(nonce) - 2));
 
 	// Channel zero's job is to copy the nonce into the AES state memory
-	DMA.CH0.CTRLA |= DMA_CH_ENABLE_bm;
-	DMA.CH0.CTRLB |= DMA_CH_ERRINTLVL_MED_gc | DMA_CH_TRNINTLVL_MED_gc; // lower than USB, higher than background
 	DMA.CH0.TRIGSRC = DMA_CH_TRIGSRC_OFF_gc;
-	DMA.CH0.TRFCNTL = BLOCKSIZE;
-	DMA.CH0.TRFCNTH = 0;
+	DMA.CH0.TRFCNT = BLOCKSIZE;
 	// Going from the same block buffer to a single address every time
 	DMA.CH0.ADDRCTRL = DMA_CH_SRCRELOAD_BLOCK_gc | DMA_CH_SRCDIR_INC_gc | DMA_CH_DESTRELOAD_NONE_gc | DMA_CH_DESTDIR_FIXED_gc;
 	DMA.CH0.REPCNT = 0;
@@ -133,11 +74,8 @@ void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
 	DMA.CH0.DESTADDR2 = 0;
 
 	// Channel one's job is to copy the key into the AES key memory
-	DMA.CH1.CTRLA |= DMA_CH_ENABLE_bm;
-	DMA.CH1.CTRLB |= DMA_CH_ERRINTLVL_MED_gc | DMA_CH_TRNINTLVL_MED_gc; // lower than USB, higher than background
 	DMA.CH1.TRIGSRC = DMA_CH_TRIGSRC_OFF_gc;
-	DMA.CH1.TRFCNTL = BLOCKSIZE;
-	DMA.CH1.TRFCNTH = 0;
+	DMA.CH1.TRFCNT = BLOCKSIZE;
 	// Going from the same block buffer to a single address every time
 	DMA.CH1.ADDRCTRL = DMA_CH_SRCRELOAD_BLOCK_gc | DMA_CH_SRCDIR_INC_gc | DMA_CH_DESTRELOAD_NONE_gc | DMA_CH_DESTDIR_FIXED_gc;
 	DMA.CH1.REPCNT = 0;
@@ -150,11 +88,9 @@ void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
 	DMA.CH1.DESTADDR2 = 0;
 
 	// Channel two's job is to copy the AES result out to the pre-ciphertext buffer.
-	DMA.CH2.CTRLA |= DMA_CH_ENABLE_bm;
-	DMA.CH2.CTRLB |= DMA_CH_ERRINTLVL_MED_gc | DMA_CH_TRNINTLVL_MED_gc; // lower than USB, higher than background
+	DMA.CH2.CTRLB |= DMA_CH_TRNINTLVL_MED_gc; // This channel has a completion interrupt
 	DMA.CH2.TRIGSRC = DMA_CH_TRIGSRC_AES_gc;
-	DMA.CH2.TRFCNTL = BLOCKSIZE;
-	DMA.CH2.TRFCNTH = 0;
+	DMA.CH2.TRFCNT = BLOCKSIZE;
 	// Going from a single address to a constantly moving forward buffer every time
 	DMA.CH2.ADDRCTRL = DMA_CH_SRCRELOAD_NONE_gc | DMA_CH_SRCDIR_FIXED_gc | DMA_CH_DESTRELOAD_NONE_gc | DMA_CH_DESTDIR_INC_gc;
 	DMA.CH2.REPCNT = 0;
@@ -162,11 +98,59 @@ void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
 	DMA.CH2.SRCADDR0 = (uint8_t)(((uint16_t)(&AES.STATE)) >> 0);
 	DMA.CH2.SRCADDR1 = (uint8_t)(((uint16_t)(&AES.STATE)) >> 8);
 	DMA.CH2.SRCADDR2 = 0;
-	DMA.CH2.DESTADDR0 = (uint8_t)(((uint16_t)pre_ct) >> 0);
-	DMA.CH2.DESTADDR1 = (uint8_t)(((uint16_t)pre_ct) >> 8);
+	// This is redundant - it gets set by init_CTR_mode() every time
+	//DMA.CH2.DESTADDR0 = (uint8_t)(((uint16_t)pre_ct) >> 0);
+	//DMA.CH2.DESTADDR1 = (uint8_t)(((uint16_t)pre_ct) >> 8);
 	DMA.CH2.DESTADDR2 = 0;
 
-	// Start copying the key and nonce for the first block.
+}
+
+ISR(DMA_CH2_vect) {
+	// Acknowledge the transfers
+	DMA.CH0.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm;
+	DMA.CH1.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm;
+	DMA.CH2.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm;
+
+	pre_ct_head += BLOCKSIZE;
+	if (pre_ct_head >= sizeof(pre_ct)) {
+		// we're done. Disable Auto AES mode
+		AES.CTRL &= ~(AES_AUTO_bm);
+		return;
+	}
+
+	// Increment the counter
+	if (++nonce[sizeof(nonce) - 1] == 0) ++nonce[sizeof(nonce) - 2];
+
+	// Turn on everything and kick off the key and nonce transfers.
+	DMA.CH0.CTRLA |= DMA_CH_ENABLE_bm;
+	DMA.CH1.CTRLA |= DMA_CH_ENABLE_bm;
+	DMA.CH2.CTRLA |= DMA_CH_ENABLE_bm;
+	DMA.CH0.CTRLA |= DMA_CH_TRFREQ_bm;
+	DMA.CH1.CTRLA |= DMA_CH_TRFREQ_bm;
+}
+
+/*
+ * Set up a DMA-driven mechanism to generate a (disk) block's worth of AES counter
+ * mode pre-ciphertext (the stuff you XOR with the input to make the output).
+ */
+void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
+	// Copy in the nonce, zero-filling first.
+        memset((void*)nonce, 0, sizeof(nonce));
+	// The last 2 bytes are the counter - force it to remain zero.
+        memcpy((void*)nonce, nonce_in, MIN(nonce_length, sizeof(nonce) - 2));
+
+	// reset the destination to the beginning
+	DMA.CH2.DESTADDR0 = (uint8_t)(((uint16_t)pre_ct) >> 0);
+	DMA.CH2.DESTADDR1 = (uint8_t)(((uint16_t)pre_ct) >> 8);
+	pre_ct_head = pre_ct_tail = 0;
+
+	// enable auto AES startup
+	AES.CTRL |= AES_AUTO_bm;
+
+	// Enable everything and start copying the key and nonce for the first block.
+	DMA.CH0.CTRLA |= DMA_CH_ENABLE_bm;
+	DMA.CH1.CTRLA |= DMA_CH_ENABLE_bm;
+	DMA.CH2.CTRLA |= DMA_CH_ENABLE_bm;
 	DMA.CH0.CTRLA |= DMA_CH_TRFREQ_bm;
 	DMA.CH1.CTRLA |= DMA_CH_TRFREQ_bm;
 }
