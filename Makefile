@@ -1,6 +1,6 @@
 
 
-LUFA_PATH=/Users/nsayer/Downloads/lufa-LUFA-151115/LUFA
+LUFA_PATH=../lufa-LUFA-151115/LUFA
 
 MCU          = atxmega32a4u
 ARCH         = XMEGA
