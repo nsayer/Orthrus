@@ -64,6 +64,9 @@ uint8_t force_attention, unit_active;
 static int32_t debounce_start; // signed and large so we can use -1 to disable
 static uint8_t button_state;
 
+/*
+ * Read 8 bits from the RNG at a sample rate of 100 kHz.
+ */
 static uint8_t randomByte(void) {
 	uint8_t out = 0;
 	for(int i = 0; i < 8; i++) {
@@ -74,12 +77,13 @@ static uint8_t randomByte(void) {
 	return out;
 }
 
-// How much source entropy per output RNG do we require? Note that
-// this value is actually less because we also pull a random key
-// block for the CMAC key. Since the key and block are the same size,
-// we can just subtract 1 from the value we want.
-#define ENTROPY_EXPANSION (8 - 1)
-
+/*
+ * This method generates 16 bytes at a time of pseudo-random data.
+ * We use AES CMAC to whiten the raw data from the entropy source.
+ * We gather ENTROPY_EXPANSION + 1 16 byte blocks for this purpose.
+ * One is used as the AES CMAC key and the rest are used as the data.
+ * The result is a block of 16 PRNG bytes for the key generator.
+ */
 void fillRandomBuffer(uint8_t *buf) {
 	uint8_t keyblock[KEYSIZE];
 	for (int i = 0; i < sizeof(keyblock); i++) {
@@ -134,18 +138,12 @@ uint8_t prepVolume(void) {
 }
 
 /*
- * To initialize the volume, we use AES ECB mode as a PRNG. The data for each
- * encrypt operation is simply a counter that starts from 0. The key is derived
- * by using the first 16 bytes of the entropy pool as an AES key and the second
- * 16 bytes as input data and performing an AES ECB. The result of that is the
- * AES key for the PRNG for the remaining operations.
+ * This method initializes a volume by writing a newly created key block for
+ * each card.
  *
  * Each card gets the same volume ID, but unique key blocks and nonces (only the
  * first ten bytes of the 16 byte PRNG block are used for the nonce). Finally,
  * one card is marked as "A" and the other as "B".
- *
- * Once that's done, two more PRNG blocks are generated to perturb the entropy pool
- * in case a volume is initialized again before the entropy recharges.
  *
  * Note that this operation doesn't prevent you from initializing an already
  * initialized volume. This is by design - it very quickly trashes all of the
@@ -276,7 +274,7 @@ void init_ports(void) {
 	// pull-up on switch pin
 	PORTA.PIN3CTRL = PORT_OPC_PULLUP_gc;
 
-#ifndef PINSWAP
+#ifdef PINSWAP
 #ifdef USART_SPI
 	// shift USART0 into place over the SPI pins
 	PORTC.REMAP = PORT_USART0_bm;

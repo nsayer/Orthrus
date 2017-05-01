@@ -49,12 +49,23 @@ In addition, USARTE0 is the diag port (currently unused).
 // Hardware starting with board version v2.0.2 swap MOSI and SCK. For those
 // versions, define PINSWAP, leaving it undefined for previous versions.
 //#define PINSWAP
+
 // To use USART0 in SPI Master mode instead of traditional SPI, turn this on.
-// (Since it's faster, you probably want it on... unless you don't). This is only
-// supported on PINSWAP hardware.
+// (Since it's supposed to be faster, you probably want it on...
+// unless you don't). This is only supported on PINSWAP hardware.
 //#define USART_SPI
+
 // Turn on the diagnostic output port. Currently, it doesn't do anything anyway, though.
 //#define DEBUG
+
+// How much source entropy per output RNG do we require? Note that
+// this value is actually less because we also pull a random key
+// block for the CMAC key. Since the key and block are the same size,
+// we can just subtract 1 from the value we want. More bits ostensibly
+// dilute whatever biases there are in the RNG, but take more RAM and
+// time. 8 way expansions means the whole key generation process
+// takes at least 80 ms (probably more because of AES etc).
+#define ENTROPY_EXPANSION (8 - 1)
 
 #if !defined(PINSWAP) && defined(USART_SPI)
 #error USART in SPI master mode requires PINSWAP hardware.
