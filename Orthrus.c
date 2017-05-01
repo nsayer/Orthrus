@@ -379,7 +379,7 @@ void __ATTR_NORETURN__ main(void) {
 	DFLLRC32M.CTRL |= DFLL_ENABLE_bm;
 
 	// Now set up the PLL for 48 MHz for USB.
-	OSC.PLLCTRL = OSC_PLLSRC_RC32M_gc | 6; // The PLL output is 6 times the input, which is 32MHz/4
+	OSC.PLLCTRL = OSC_PLLSRC_RC32M_gc | (F_USB / (F_CPU / 4)); // The PLL input is the 32 MHz osc divided by 4.
 	OSC.CTRL |= OSC_PLLEN_bm;
 	while(!(OSC.STATUS & OSC_PLLRDY_bm)) ; // wait for it.
 	CLK.USBCTRL = CLK_USBSRC_PLL_gc | CLK_USBSEN_bm; // USB is clocked from the PLL.
