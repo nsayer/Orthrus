@@ -76,7 +76,7 @@ static uint8_t randomByte(void) {
 
 // How much source entropy per output RNG do we require? Note that
 // this value is actually less because we also pull a random key
-// block for the CMAC. Since the key and block are the same size,
+// block for the CMAC key. Since the key and block are the same size,
 // we can just subtract 1 from the value we want.
 #define ENTROPY_EXPANSION (8 - 1)
 
@@ -276,8 +276,7 @@ void init_ports(void) {
 	// pull-up on switch pin
 	PORTA.PIN3CTRL = PORT_OPC_PULLUP_gc;
 
-// don't do this for <v2.0.2.
-#if 0
+#ifndef PINSWAP
 #ifdef USART_SPI
 	// shift USART0 into place over the SPI pins
 	PORTC.REMAP = PORT_USART0_bm;
@@ -288,11 +287,14 @@ void init_ports(void) {
 #endif
 #endif
 
+	// Port C direction is largely set by CARD_POWER_OFF.
+	// The only thing of note we'd do is set the card detect
+	// pins to inputs, and they already are.
 	// pull-up on MISO and the two card detect pins
 	PORTCFG.MPCMASK = (1<<1) | (1<<2) | (1<<6);
 	PORTC.PIN1CTRL = PORT_OPC_PULLUP_gc;
 
-	PORTD.DIR = 0; // all input.
+	//PORTD.DIR = 0; // all input. Redundant.
 
 #ifdef DEBUG
 	diag_tx_head = diag_tx_tail = 0;
@@ -392,16 +394,19 @@ void __ATTR_NORETURN__ main(void) {
 	// Enable all levels of the interrupt controller
 	PMIC.CTRL = PMIC_HILVLEN_bm | PMIC_MEDLVLEN_bm | PMIC_LOLVLEN_bm;
 
+	LED_OFF(LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
+
+	unit_active = 0;
+	force_attention = 0;
+
 	GlobalInterruptEnable();
 
 	USB_Init();
 
-	unit_active = 0;
-	force_attention = 0;
 	uint8_t cards_present = 0;
-	LED_OFF(LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
 	uint8_t button_state = 0, ignoring_button = 0;
 	uint16_t button_started = 0;
+
 	while(1) {
 
 		uint8_t cards_now = CD_STATE;
@@ -492,10 +497,14 @@ void __ATTR_NORETURN__ main(void) {
 					force_attention = 1;
 					ignoring_button = 1;
 				} else {
+					// power the card off so that if they hit the button
+					// again maybe it'll work.
+					CARD_POWER_OFF;
 					LED_OFF(LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
 					LED_ON(LED_ERR_bm);
 					unit_active = 0;
-					force_attention = 1;
+					// no, nothing changed. It was offline and still is.
+					//force_attention = 1;
 					ignoring_button = 1;
 				}
 			} else {

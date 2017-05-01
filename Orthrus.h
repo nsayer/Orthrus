@@ -31,7 +31,8 @@ PC7 - MOSI
 
 Note that MOSI and SCK are swapped from normal SPI wiring. For normal
 SPI, remap them with REMAP.PORT_SPI_bm. For USART0 in SPI master mode,
-remap the USART with REMAP.PORT_USART0_bm.
+remap the USART with REMAP.PORT_USART0_bm. Older hardware does not have
+this pinswap in effect. See the PINSWAP macro below.
 
 PA0 - LED_RDY - the ready LED
 PA1 - LED_ACT - the activity LED
@@ -45,11 +46,19 @@ In addition, USARTE0 is the diag port (currently unused).
 
 */
 
+// Hardware starting with board version v2.0.2 swap MOSI and SCK. For those
+// versions, define PINSWAP, leaving it undefined for previous versions.
+//#define PINSWAP
 // To use USART0 in SPI Master mode instead of traditional SPI, turn this on.
-// (Since it's faster, you probably want it on... unless you don't)
+// (Since it's faster, you probably want it on... unless you don't). This is only
+// supported on PINSWAP hardware.
 //#define USART_SPI
 // Turn on the diagnostic output port. Currently, it doesn't do anything anyway, though.
 //#define DEBUG
+
+#if !defined(PINSWAP) && defined(USART_SPI)
+#error USART in SPI master mode requires PINSWAP hardware.
+#endif
 
 #include <avr/io.h>
 

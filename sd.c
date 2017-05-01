@@ -81,7 +81,7 @@ static inline uint8_t SPI_byte(uint8_t data) {
 	while (!(USARTC0.STATUS & USART_DREIF_bm)) ; // just an assertion (no-op)
 	USARTC0.DATA = data;
 	while (!(USARTC0.STATUS & USART_TXCIF_bm)) ; // wait for tx complete
-	while (!(USARTC0.STATUS & USART_RXCIF_bm)) ; // just an assertion (no-op)
+	while (!(USARTC0.STATUS & USART_RXCIF_bm)) ; // Wait for the data
 	return USARTC0.DATA;
 #else
 	SPIC.DATA = data;
@@ -321,6 +321,7 @@ uint8_t volumeReadBlock(uint32_t blocknum) {
 
 	DEASSERT_CARDS;
 	LED_OFF(LED_ACT_bm);
+	LED_OFF(LED_ERR_bm);
 	return 0;
 
 fail:
@@ -383,6 +384,7 @@ uint8_t volumeWriteBlock(uint32_t blocknum) {
 	if ((data_status & 0x1f) != 5) goto fail;
 	DEASSERT_CARDS;
 	LED_OFF(LED_ACT_bm);
+	LED_OFF(LED_ERR_bm);
 
 	return 0;
 
