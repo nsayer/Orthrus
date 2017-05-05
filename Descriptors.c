@@ -54,8 +54,8 @@ const USB_Descriptor_Device_t PROGMEM DeviceDescriptor =
 
 	.Endpoint0Size          = FIXED_CONTROL_ENDPOINT_SIZE,
 
-	.VendorID               = 0x03EB,
-	.ProductID              = 0x2045,
+	.VendorID               = 0xF055,
+	.ProductID              = 0xC0C0,
 	.ReleaseNumber          = VERSION_BCD(0,0,1),
 
 	.ManufacturerStrIndex   = STRING_ID_Manufacturer,
@@ -84,7 +84,7 @@ const USB_Descriptor_Configuration_t PROGMEM ConfigurationDescriptor =
 
 			.ConfigAttributes       = USB_CONFIG_ATTR_RESERVED,
 
-			.MaxPowerConsumption    = USB_CONFIG_POWER_MA(500)
+			.MaxPowerConsumption    = USB_CONFIG_POWER_MA(150)
 		},
 
 	.MS_Interface =
