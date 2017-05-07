@@ -386,15 +386,15 @@ void __ATTR_NORETURN__ main(void) {
 	CLK.USBCTRL = CLK_USBSRC_PLL_gc | CLK_USBSEN_bm; // USB is clocked from the PLL.
 
 	// turn off the bits of the chip we don't need.
-	PR.PRGEN = PR_RTC_bm | PR_EBI_bm | PR_EVSYS_bm; // EBI is probably moot for this chip variant.
+	PR.PRGEN = PR_RTC_bm | PR_EBI_bm | PR_EVSYS_bm | PR_DMA_bm; // EBI is probably moot for this chip variant.
 	PR.PRPA = PR_DAC_bm | PR_ADC_bm | PR_AC_bm; // all analog stuff off.
 	PR.PRPB = PR_DAC_bm | PR_ADC_bm | PR_AC_bm; // all analog stuff off.
 
 	PR.PRPC = PR_TWI_bm | PR_USART1_bm | PR_HIRES_bm | PR_TC1_bm
 #ifdef USART_SPI
-										 | PR_SPI_bm
+								     | PR_SPI_bm
 #else
-										 | PR_USART0_bm
+								     | PR_USART0_bm
 #endif
 		;
 

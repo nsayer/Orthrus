@@ -132,7 +132,7 @@ static void galois_mult(uint8_t *block, size_t block_len) {
 		block[i] |= carry?1:0;
 		carry = next_carry;
 	}
-	// If the carry from the left shift is 1, then XOR RBin at the bottom
+	// If the carry from the left shift is 1, then XOR RB in at the bottom
 	if (carry)
 		block[block_len - 1] ^= RB;
 }
