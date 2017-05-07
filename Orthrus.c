@@ -52,7 +52,7 @@
 
 static const char PROGMEM MAGIC[] = "OrthrusVolumeV01";
 
-static uint8_t nonceA[14], nonceB[14];
+static uint8_t nonceA[BLOCKSIZE], nonceB[BLOCKSIZE];
 
 static uint8_t cardswap;
 
@@ -103,9 +103,9 @@ void fillRandomBuffer(uint8_t *buf) {
  * 00-0F: magic value
  * 10-2F: volume ID
  * 30-4F: key block
- * 50-59: nonce for the *other* card
- * 5A: flag - 0 for "A", 1 for "B"
- * 5B-1FF: unused
+ * 50-5F: nonce for the *other* card (only 50-5b actually used)
+ * 60: flag - 0 for "A", 1 for "B"
+ * 61-1FF: unused
  *
  * To make the volume key, you concatenate the key blocks
  * from card A and B together (A first) and perform an AES CMAC over
@@ -118,12 +118,12 @@ uint8_t prepVolume(void) {
 	uint8_t blockbuf[128];
 	if (readKeyBlock(0, blockbuf, sizeof(blockbuf))) return 1; // card A
 	if (memcmp_P(blockbuf, MAGIC, strlen_P(MAGIC))) return 1; // FAIL!
-	cardswap = blockbuf[90] != 0; // we're swapping if A isn't A
+	cardswap = blockbuf[96] != 0; // we're swapping if A isn't A
 	memcpy(volid, blockbuf + 16, sizeof(volid));
 	memcpy(cardswap?keyblock[1]:keyblock[0], blockbuf + 48, sizeof(volid));
 	memcpy(cardswap?nonceB:nonceA, blockbuf + 80, sizeof(nonceA));
 	if (readKeyBlock(1, blockbuf, sizeof(blockbuf))) return 1; // card B
-	if (!((blockbuf[90] != 0) ^ cardswap)) return 1; // One A, one B.
+	if (!((blockbuf[96] != 0) ^ cardswap)) return 1; // One A, one B.
 	if (memcmp_P(blockbuf, MAGIC, strlen_P(MAGIC))) return 1; // FAIL!
 	if (memcmp(blockbuf + 16, volid, sizeof(volid))) return 1; // FAIL!
 	memcpy(cardswap?keyblock[0]:keyblock[1], blockbuf + 48, sizeof(volid));
@@ -134,6 +134,7 @@ uint8_t prepVolume(void) {
 	setKey(blockbuf);
 	CMAC(volid, 32, blockbuf);
 	setKey(blockbuf);
+	generateDecryptKey();
 	return 0; // all set!
 }
 
@@ -166,7 +167,7 @@ uint8_t initVolume(void) {
 	// nonce block A
 	fillRandomBuffer(blockbuf + 80);
 
-	blockbuf[90] = 0; // card A
+	blockbuf[96] = 0; // card A
 	if (writeKeyBlock(0, blockbuf, sizeof(blockbuf))) return 1;
 
 	// key block B
@@ -176,7 +177,7 @@ uint8_t initVolume(void) {
 	// nonce block B
 	fillRandomBuffer(blockbuf + 80);
 
-	blockbuf[90] = 1; // card B
+	blockbuf[96] = 1; // card B
 	if (writeKeyBlock(1, blockbuf, sizeof(blockbuf))) return 1;
 
 	// As a side effect, prep the volume, which essentially
@@ -187,15 +188,15 @@ uint8_t initVolume(void) {
 
 // return 0 for *PHYSICAL* card A or 1 for B
 // During the data transfer, we can call encrypt_CTR_byte() on each byte as we go.
-uint8_t setupBlockCrypto(uint32_t blocknum) {
+uint8_t setupBlockCrypto(uint32_t blocknum, uint8_t mode) {
 	uint8_t cardA = (blocknum & 0x1) == 0;
 
 	uint8_t *nonce = cardA?nonceB:nonceA;
-	nonce[10] = (uint8_t)(blocknum >> 24);
-	nonce[11] = (uint8_t)(blocknum >> 16);
-	nonce[12] = (uint8_t)(blocknum >> 8);
-	nonce[13] = (uint8_t)(blocknum >> 0);
-	init_CTR(nonce, sizeof(nonceA));
+	nonce[12] = (uint8_t)(blocknum >> 24);
+	nonce[13] = (uint8_t)(blocknum >> 16);
+	nonce[14] = (uint8_t)(blocknum >> 8);
+	nonce[15] = (uint8_t)(blocknum >> 0);
+	init_xex(nonce, sizeof(nonceA), mode);
 
 	return !(cardA ^ cardswap);
 }
@@ -389,7 +390,7 @@ void __ATTR_NORETURN__ main(void) {
 	PR.PRPA = PR_DAC_bm | PR_ADC_bm | PR_AC_bm; // all analog stuff off.
 	PR.PRPB = PR_DAC_bm | PR_ADC_bm | PR_AC_bm; // all analog stuff off.
 
-	PR.PRPC = PR_TWI_bm | PR_USART1_bm | PR_SPI_bm | PR_HIRES_bm | PR_TC1_bm
+	PR.PRPC = PR_TWI_bm | PR_USART1_bm | PR_HIRES_bm | PR_TC1_bm
 #ifdef USART_SPI
 										 | PR_SPI_bm
 #else
@@ -443,6 +444,7 @@ void __ATTR_NORETURN__ main(void) {
 				if (init()) {
 					LED_ON(LED_ERR_bm);
 					CARD_POWER_OFF;
+					clearKeys();
 					unit_active = 0;
 					force_attention = 1;
 				} else {
@@ -452,7 +454,7 @@ void __ATTR_NORETURN__ main(void) {
 				}
 			} else {
 				CARD_POWER_OFF;
-				AES.CTRL |= AES_RESET_bm; // clear out the key
+				clearKeys();
 				unit_active = 0;
 				force_attention = 1;
 				// lights out!
@@ -521,6 +523,7 @@ void __ATTR_NORETURN__ main(void) {
 					// power the card off so that if they hit the button
 					// again maybe it'll work.
 					CARD_POWER_OFF;
+					clearKeys();
 					LED_OFF(LED_ACT_bm | LED_RDY_bm | LED_ERR_bm);
 					LED_ON(LED_ERR_bm);
 					unit_active = 0;

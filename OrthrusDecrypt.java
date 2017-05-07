@@ -48,6 +48,8 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 public class OrthrusDecrypt {
 	public static byte[] MAGIC = "OrthrusVolumeV01".getBytes();
 
+	private static final byte RB = (byte)0x87;
+
 	private static final int SECTORSIZE = 512; // The size of a disk block
 	private static final int BLOCKSIZE = 16; // The AES block size.
 
@@ -58,30 +60,6 @@ public class OrthrusDecrypt {
 		int lengthDiff = bytes.length - out.length() / 2;
 		for(int i = 0; i < lengthDiff; i++)
 			out = "0" + out;
-		return out;
-	}
-
-	/*
-	 * For every block, we need to prepare 512 bytes of "pre-ciphertext"
-	 * that represents the output of the counter mode cipher. Each byte
-	 * is XORed with an incoming byte to either encrypt or decrypt the
-	 * block.
-	 *
-	 * For this method, we are given the *complete* nonce, which already
-	 * has the block number embedded. We use the last two bytes of the
-	 * 16 byte value as our counter.
-	 */
-	private static byte[] prepareCipherBytes(byte[] nonce, SecretKey volumeKey) throws GeneralSecurityException {
-		Cipher c = Cipher.getInstance("AES/ECB/NoPadding");
-		byte[] out = new byte[SECTORSIZE];
-		byte[] ivblock = new byte[BLOCKSIZE];
-		System.arraycopy(nonce, 0, ivblock, 0, nonce.length);
-		for(int i = 0; i < out.length / BLOCKSIZE; i++) {
-			ivblock[14] = (byte)(i >> 8);
-			ivblock[15] = (byte)(i >> 0);
-			c.init(Cipher.ENCRYPT_MODE, volumeKey);
-			System.arraycopy(c.doFinal(ivblock), 0, out, BLOCKSIZE * i, BLOCKSIZE);
-		}
 		return out;
 	}
 
@@ -126,11 +104,11 @@ public class OrthrusDecrypt {
 			System.err.println("Cards are not paired.");
 			return;
 		}
-		if (!((keyblock1[90] == 0) ^ (keyblock2[90] == 0))) {
+		if (!((keyblock1[96] == 0) ^ (keyblock2[96] == 0))) {
 			System.err.println("There needs to be one A and one B card.");
 			return;
 		}
-		if (keyblock1[90] != 0) {
+		if (keyblock1[96] != 0) {
 			// swap A and B
 			{
 				InputStream swap = stream1;
@@ -178,10 +156,14 @@ public class OrthrusDecrypt {
 		 * counter mode, but the 10 bytes used are the 10 bytes
 		 * stored on the opposite physical card for each logical block.
 		 */
-		byte[] nonce1 = Arrays.copyOfRange(keyblock1, 80, 90);
-		byte[] nonce2 = Arrays.copyOfRange(keyblock2, 80, 90);
+		byte[] nonce1 = Arrays.copyOfRange(keyblock1, 80, 96);
+		byte[] nonce2 = Arrays.copyOfRange(keyblock2, 80, 96);
 		System.err.println("Nonce A : " + hexString(nonce1));
 		System.err.println("Nonce B : " + hexString(nonce2));
+		Cipher tweakCipher = Cipher.getInstance("AES/ECB/NoPadding");
+		tweakCipher.init(Cipher.ENCRYPT_MODE, volumeKey);
+		Cipher dataCipher = Cipher.getInstance("AES/ECB/NoPadding");
+		dataCipher.init(Cipher.DECRYPT_MODE, volumeKey);
 		for(int block = 0; true; block++) {
 			// Read the next block from the correct card.
 			byte[] ciphertext = new byte[SECTORSIZE];
@@ -194,19 +176,35 @@ public class OrthrusDecrypt {
 			if (stream.read(ciphertext) <= 0) break; // If we reach the end of one card, we're done.
 
 			// create the individual nonce for this block.
-			byte[] nonce = new byte[14];
+			byte[] nonce = new byte[BLOCKSIZE];
 			System.arraycopy(cardA?nonce2:nonce1, 0, nonce, 0, nonce1.length); // pick the nonce from the other card
-			nonce[10] = (byte)(block >> 24);
-			nonce[11] = (byte)(block >> 16);
-			nonce[12] = (byte)(block >> 8);
-			nonce[13] = (byte)(block >> 0);
+			nonce[12] = (byte)(block >> 24);
+			nonce[13] = (byte)(block >> 16);
+			nonce[14] = (byte)(block >> 8);
+			nonce[15] = (byte)(block >> 0);
+			byte[] tweak = tweakCipher.doFinal(nonce);
 
-			// run the counter mode to get all of the pre-ciphertext.
-			byte[] cipherBytes = prepareCipherBytes(nonce, volumeKey);
-			// and decrypt the block.
-			for(int i = 0; i < ciphertext.length; i++)
-				ciphertext[i] ^= cipherBytes[i];
-			System.out.write(ciphertext); // now it's the plaintext
+			byte[] plaintext = new byte[SECTORSIZE];
+			for(int pos = 0; pos < SECTORSIZE; pos += 16) {
+				byte[] subBlock = Arrays.copyOfRange(ciphertext, pos, pos + 16);
+				for(int i = 0; i < subBlock.length; i++) subBlock[i] ^= tweak[i];
+				subBlock = dataCipher.doFinal(subBlock);
+				for(int i = 0; i < subBlock.length; i++) subBlock[i] ^= tweak[i];
+				System.arraycopy(subBlock, 0, plaintext, pos, subBlock.length);
+
+				// Now make the next tweak. Left shift...
+				boolean carry = false;
+				for(int i = tweak.length - 1; i >= 0; i--) {
+					boolean saved_carry = (tweak[i] & 0x80) != 0;
+					tweak[i] <<= 1;
+					tweak[i] |= carry?1:0;
+					carry = saved_carry;
+				}
+				// And if there was a carry, xor in the special RB value at the bottom.
+				if (carry) tweak[tweak.length - 1] ^= RB;
+			}
+
+			System.out.write(plaintext);
 		}
 	}
 }

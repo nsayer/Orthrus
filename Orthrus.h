@@ -104,7 +104,7 @@ In addition, USARTE0 is the diag port (currently unused).
 #define RNG_STATE (PORTD.IN & RNG_bm)
 
 // These are callbacks from the sd code.
-uint8_t setupBlockCrypto(uint32_t blocknum);
+uint8_t setupBlockCrypto(uint32_t blocknum, uint8_t mode);
 uint8_t initVolume(void);
 uint8_t prepVolume(void);
 

@@ -28,24 +28,11 @@
 // AES.KEY
 #define KEYSIZE (16)
 
-extern volatile uint8_t key[KEYSIZE], pre_ct[VIRTUAL_MEMORY_BLOCK_SIZE];
-extern volatile uint16_t pre_ct_head, pre_ct_tail;
+#if (BLOCKSIZE != KEYSIZE)
+#error We make a lot of assumptions that the blocksize and keysize are the same
+#endif
 
-/*
- * Process a streaming block. This assumes you called init_CTR already.
- * Hopefully you did it "a while ago" and the background process has
- * gotten far enough ahead that the wait never happens.
- */
-static inline uint8_t encrypt_CTR_byte(uint8_t data) ATTR_ALWAYS_INLINE;
-static inline uint8_t encrypt_CTR_byte(uint8_t data) {
-        uint16_t local_head;
-        do {
-                ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-                        local_head = pre_ct_head;
-                }
-        } while (pre_ct_tail == local_head) ; // wait for the data to fill in
-        return pre_ct[pre_ct_tail++] ^ data;
-}
+extern uint8_t key[KEYSIZE];
 
 /*
  * Store the key. Alas, we can't just set the key in the AES
@@ -57,17 +44,23 @@ static inline void setKey(uint8_t *k) {
 	memcpy((uint8_t*)key, (k), sizeof(key));
 }
 
-// set up the AES+DMA subsystem.
+// set up the AES subsystem.
 void init_aes(void);
 
-// Call this at the very start of a disk transfer (either direction).
-// It will set up things so you can call encrypt_CTR_byte()
-// VIRTUAL_MEMORY_BLOCK_SIZE times.
-void init_CTR(uint8_t* nonce, size_t nonce_length);
+// Wipe out the keys. This protects the user if they pull
+// the cards out and leave Orthrus plugged in and unattended.
+void clearKeys(void);
 
-// Call this with each byte read prior to writing. It's misnamed - it
-// actually does either encryption or decryption in counter mode.
-uint8_t encrypt_CTR_byte(uint8_t data);
+// Call this once after setting the volume key to create the
+// decryption version of the key.
+void generateDecryptKey(void);
+
+// Call this at the start of each block I/O with the nonce value
+// and 0 for encrypt, 1 for decrypt.
+void init_xex(uint8_t *nonce, size_t nonce_len, uint8_t mode_in);
+
+// Call this with BLOCKSIZE bytes at a time.
+void process_xex_block(uint8_t *data);
 
 // Perform an AES CMAC on the given buffer (call setKey() first).
 void CMAC(uint8_t *buf, size_t buf_length, uint8_t *sigbuf);

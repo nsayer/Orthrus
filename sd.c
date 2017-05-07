@@ -266,7 +266,7 @@ uint8_t init(void) {
 }
 
 uint8_t volumeReadBlock(uint32_t blocknum) {
-	uint8_t card = setupBlockCrypto(blocknum);
+	uint8_t card = setupBlockCrypto(blocknum, 1);
 	uint32_t phys_block = (blocknum >> 1) + 1;
 
 	if (!CD_STATE) return 1; // fail
@@ -286,34 +286,25 @@ uint8_t volumeReadBlock(uint32_t blocknum) {
 
 			/* Wait until the host has sent another packet */
 			if (Endpoint_WaitUntilReady())
-				return 1;
+				goto fail;
 		}
+		for(int j = 0; j < MASS_STORAGE_IO_EPSIZE / BLOCKSIZE; j++) {
+			uint8_t data[BLOCKSIZE];
+			for(int k = 0; k < BLOCKSIZE; k++) {
 #ifdef USART_SPI
-		USARTC0.DATA = 0xff; // write the initial byte
+				while(!(USARTC0.STATUS & USART_DREIF_bm)); // wait for ready
+				USARTC0.DATA = 0xff;
+				while(!(USARTC0.STATUS & USART_RXCIF_bm)); // wait to read
+				data[k] = USARTC0.DATA;
 #else
-		SPIC.DATA = 0xff; // write the initial byte
+				SPIC.DATA = 0xff; // run the clock
+				while(!(SPIC.STATUS & SPI_IF_bm)) ; // wait for it
+				data[k] = SPIC.DATA;
 #endif
-		for(int j = 0; j < MASS_STORAGE_IO_EPSIZE - 1; j++) {
-#ifdef USART_SPI
-			while(!(USARTC0.STATUS & USART_DREIF_bm)); // wait for ready
-			USARTC0.DATA = 0xff;
-			while(!(USARTC0.STATUS & USART_RXCIF_bm)); // wait to read
-			uint8_t readByte = USARTC0.DATA;
-#else
-			while(!(SPIC.STATUS & SPI_IF_bm)) ; // wait for it
-			uint8_t readByte = SPIC.DATA;
-			SPIC.DATA = 0xff; // start the next one right away in the background.
-#endif
-			Endpoint_Write_8(encrypt_CTR_byte(readByte));
+			}
+			process_xex_block(data);
+			Endpoint_Write_Stream_LE(data, sizeof(data), NULL);
 		}
-#ifdef USART_SPI
-		while(!(USARTC0.STATUS & USART_RXCIF_bm)); // wait for last one
-		uint8_t readByte = USARTC0.DATA;
-#else
-		while(!(SPIC.STATUS & SPI_IF_bm)) ; // wait for the last one.
-		uint8_t readByte = SPIC.DATA;
-#endif
-		Endpoint_Write_8(encrypt_CTR_byte(readByte));
 	}
 
 	SPI_byte(0xff); // CRC
@@ -332,7 +323,7 @@ fail:
 }
 
 uint8_t volumeWriteBlock(uint32_t blocknum) {
-	uint8_t card = setupBlockCrypto(blocknum);
+	uint8_t card = setupBlockCrypto(blocknum, 0);
 	uint32_t phys_block = (blocknum >> 1) + 1;
 
 	if (!CD_STATE) return 1; // fail
@@ -352,31 +343,30 @@ uint8_t volumeWriteBlock(uint32_t blocknum) {
 
 			/* Wait until the host has sent another packet */
 			if (Endpoint_WaitUntilReady())
-				return 1;
+				goto fail;
 		}
-		uint8_t value = encrypt_CTR_byte(Endpoint_Read_8());
-		for(int j = 0; j < MASS_STORAGE_IO_EPSIZE - 1; j++) {
+		for(int j = 0; j < MASS_STORAGE_IO_EPSIZE / BLOCKSIZE; j++) {
+			uint8_t data[BLOCKSIZE];
+			Endpoint_Read_Stream_LE(data, sizeof(data), NULL);
+			process_xex_block(data);
+			for(int k = 0; k < sizeof(data); k++) {
 #ifdef USART_SPI
-			USARTC0.DATA = value;
+				while(!(USARTC0.STATUS & USART_DREIF_bm)) ; // wait for ready
+				USARTC0.DATA = data[k];
 #else
-			SPIC.DATA = value;
+				if (i != 0 || j != 0 || k != 0)
+					while(!(SPIC.STATUS & SPI_IF_bm)) ; // wait for ready
+				SPIC.DATA = data[k];
 #endif
-			value = encrypt_CTR_byte(Endpoint_Read_8());
-#ifdef USART_SPI
-			while(!(USARTC0.STATUS & USART_DREIF_bm)) ; // wait for ready
-#else
-			while(!(SPIC.STATUS & SPI_IF_bm)) ; // wait for it to go
-#endif
+			}
 		}
-		// Do the last one
-#ifdef USART_SPI
-		USARTC0.DATA = value;
-		while(!(USARTC0.STATUS & USART_TXCIF_bm)) ; // wait for transmit complete
-#else
-		SPIC.DATA = value;
-		while(!(SPIC.STATUS & SPI_IF_bm)) ; // wait for it to go
-#endif
 	}
+	// Wait for the last one
+#ifdef USART_SPI
+	while(!(USARTC0.STATUS & USART_TXCIF_bm)) ; // wait for transmit complete
+#else
+	while(!(SPIC.STATUS & SPI_IF_bm)) ; // wait for it to go
+#endif
 
 	SPI_byte(0xff); // CRC
 	SPI_byte(0xff); // CRC

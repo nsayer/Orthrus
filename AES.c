@@ -45,118 +45,53 @@ in the foreground - no interrupts or DMA.
 #define DMA_CH_TRIGSRC_AES_gc (0x04<<0)
 #endif
 
-volatile uint8_t key[KEYSIZE], pre_ct[VIRTUAL_MEMORY_BLOCK_SIZE];
-volatile uint16_t pre_ct_tail, pre_ct_head;
-volatile static uint8_t nonce[BLOCKSIZE];
+// This is a CMAC constant related to the key size.
+#define RB (0x87)
+
+uint8_t tweak[BLOCKSIZE];
+uint8_t key[KEYSIZE], dec_key[KEYSIZE], mode;
 
 void init_aes(void) {
+	clearKeys();
+}
+
+void clearKeys(void) {
+	memset(key, 0, sizeof(key));
+	memset(dec_key, 0, sizeof(key));
+	// a reset will clear out the key memory of the hardware.
 	AES.CTRL |= AES_RESET_bm;
-	// reset and enable the whole DMA system
-	DMA.CTRL = 0;
-	DMA.CTRL |= DMA_RESET_bm;
-	while ((DMA.CTRL & DMA_RESET_bm) != 0) ;
-	DMA.CTRL |= DMA_ENABLE_bm;
-
-	// Channel zero's job is to copy the nonce into the AES state memory
-	DMA.CH0.TRIGSRC = DMA_CH_TRIGSRC_OFF_gc;
-	DMA.CH0.TRFCNT = BLOCKSIZE;
-	// Going from the same block buffer to a single address every time
-	DMA.CH0.ADDRCTRL = DMA_CH_SRCRELOAD_BLOCK_gc | DMA_CH_SRCDIR_INC_gc | DMA_CH_DESTRELOAD_NONE_gc | DMA_CH_DESTDIR_FIXED_gc;
-	DMA.CH0.REPCNT = 0;
-	// Copy the key into AES.
-	DMA.CH0.SRCADDR0 = (uint8_t)(((uint16_t)nonce) >> 0);
-	DMA.CH0.SRCADDR1 = (uint8_t)(((uint16_t)nonce) >> 8);
-	DMA.CH0.SRCADDR2 = 0;
-	DMA.CH0.DESTADDR0 = (uint8_t)(((uint16_t)(&AES.STATE)) >> 0);
-	DMA.CH0.DESTADDR1 = (uint8_t)(((uint16_t)(&AES.STATE)) >> 8);
-	DMA.CH0.DESTADDR2 = 0;
-
-	// Channel one's job is to copy the key into the AES key memory
-	DMA.CH1.TRIGSRC = DMA_CH_TRIGSRC_OFF_gc;
-	DMA.CH1.TRFCNT = BLOCKSIZE;
-	// Going from the same block buffer to a single address every time
-	DMA.CH1.ADDRCTRL = DMA_CH_SRCRELOAD_BLOCK_gc | DMA_CH_SRCDIR_INC_gc | DMA_CH_DESTRELOAD_NONE_gc | DMA_CH_DESTDIR_FIXED_gc;
-	DMA.CH1.REPCNT = 0;
-	// Copy the nonce into AES.
-	DMA.CH1.SRCADDR0 = (uint8_t)(((uint16_t)key) >> 0);
-	DMA.CH1.SRCADDR1 = (uint8_t)(((uint16_t)key) >> 8);
-	DMA.CH1.SRCADDR2 = 0;
-	DMA.CH1.DESTADDR0 = (uint8_t)(((uint16_t)(&AES.KEY)) >> 0);
-	DMA.CH1.DESTADDR1 = (uint8_t)(((uint16_t)(&AES.KEY)) >> 8);
-	DMA.CH1.DESTADDR2 = 0;
-
-	// Channel two's job is to copy the AES result out to the pre-ciphertext buffer.
-	DMA.CH2.CTRLB |= DMA_CH_TRNINTLVL_MED_gc; // This channel has a completion interrupt
-	DMA.CH2.TRIGSRC = DMA_CH_TRIGSRC_AES_gc;
-	DMA.CH2.TRFCNT = BLOCKSIZE;
-	// Going from a single address to a constantly moving forward buffer every time
-	DMA.CH2.ADDRCTRL = DMA_CH_SRCRELOAD_NONE_gc | DMA_CH_SRCDIR_FIXED_gc | DMA_CH_DESTRELOAD_NONE_gc | DMA_CH_DESTDIR_INC_gc;
-	DMA.CH2.REPCNT = 0;
-	// Copy the pre-ciphertext out of AES.
-	DMA.CH2.SRCADDR0 = (uint8_t)(((uint16_t)(&AES.STATE)) >> 0);
-	DMA.CH2.SRCADDR1 = (uint8_t)(((uint16_t)(&AES.STATE)) >> 8);
-	DMA.CH2.SRCADDR2 = 0;
-	// This is redundant - it gets set by init_CTR_mode() every time
-	//DMA.CH2.DESTADDR0 = (uint8_t)(((uint16_t)pre_ct) >> 0);
-	//DMA.CH2.DESTADDR1 = (uint8_t)(((uint16_t)pre_ct) >> 8);
-	DMA.CH2.DESTADDR2 = 0;
-
+	while(AES.CTRL & AES_RESET_bm);
 }
 
-ISR(DMA_CH2_vect) {
-	// Acknowledge the transfers
-	DMA.CH0.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm;
-	DMA.CH1.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm;
-	DMA.CH2.CTRLB |= DMA_CH_ERRIF_bm | DMA_CH_TRNIF_bm;
-
-	pre_ct_head += BLOCKSIZE;
-	if (pre_ct_head >= sizeof(pre_ct)) {
-		// we're done. Disable Auto AES mode
-		AES.CTRL &= ~(AES_AUTO_bm);
-		return;
+// Decryption with our hardware requires
+// using a different key than encryption.
+// Fortunately, the hardware itself can derive
+// the decryption key from the encryption key
+// by processing a dummy block.
+void generateDecryptKey(void) {
+	// Encrypt mode
+	AES.CTRL &= ~(AES_DECRYPT_bm);
+	for(int i = 0; i < BLOCKSIZE; i++) {
+		AES.KEY = key[i];
+		AES.STATE = 0;
 	}
-
-	// Increment the counter
-	if (++nonce[sizeof(nonce) - 1] == 0) ++nonce[sizeof(nonce) - 2];
-
-	// Turn on everything and kick off the key and nonce transfers.
-	DMA.CH0.CTRLA |= DMA_CH_ENABLE_bm;
-	DMA.CH1.CTRLA |= DMA_CH_ENABLE_bm;
-	DMA.CH2.CTRLA |= DMA_CH_ENABLE_bm;
-	DMA.CH0.CTRLA |= DMA_CH_TRFREQ_bm;
-	DMA.CH1.CTRLA |= DMA_CH_TRFREQ_bm;
+	// GO!
+	AES.CTRL |= AES_START_bm;
+	// Wait for it to finish
+	while(!(AES.STATUS & AES_SRIF_bm)) ;
+	// Read out the decryption key
+	for(int i = 0; i < BLOCKSIZE; i++) {
+		dec_key[i] = AES.KEY;
+		AES.STATE; // dummy read - if we don't, chaos ensues.
+	}
 }
 
 /*
- * Set up a DMA-driven mechanism to generate a (disk) block's worth of AES counter
- * mode pre-ciphertext (the stuff you XOR with the input to make the output).
- */
-void init_CTR(uint8_t* nonce_in, size_t nonce_length) {
-	// Copy in the nonce, zero-filling first.
-        memset((void*)nonce, 0, sizeof(nonce));
-	// The last 2 bytes are the counter - force it to remain zero.
-        memcpy((void*)nonce, nonce_in, MIN(nonce_length, sizeof(nonce) - 2));
-
-	// reset the destination to the beginning
-	DMA.CH2.DESTADDR0 = (uint8_t)(((uint16_t)pre_ct) >> 0);
-	DMA.CH2.DESTADDR1 = (uint8_t)(((uint16_t)pre_ct) >> 8);
-	pre_ct_head = pre_ct_tail = 0;
-
-	// enable auto AES startup
-	AES.CTRL |= AES_AUTO_bm;
-
-	// Enable everything and start copying the key and nonce for the first block.
-	DMA.CH0.CTRLA |= DMA_CH_ENABLE_bm;
-	DMA.CH1.CTRLA |= DMA_CH_ENABLE_bm;
-	DMA.CH2.CTRLA |= DMA_CH_ENABLE_bm;
-	DMA.CH0.CTRLA |= DMA_CH_TRFREQ_bm;
-	DMA.CH1.CTRLA |= DMA_CH_TRFREQ_bm;
-}
-
-/*
- * For CMAC, we don't use DMA - we just do a block interactively
+ * Do a single encryption.
  */
 static void encrypt_ECB(uint8_t *block) {
+	// encrypt mode
+	AES.CTRL &= ~(AES_DECRYPT_bm);
 	for(int i = 0; i < BLOCKSIZE; i++) {
 		AES.KEY = key[i];
 		AES.STATE = block[i];
@@ -171,20 +106,59 @@ static void encrypt_ECB(uint8_t *block) {
 	}
 }
 
-// This is a CMAC constant related to the key size.
-#define RB (0x87)
-
-// This is a helper method for CMAC.
-static uint8_t leftShiftBlock(uint8_t* ptr, size_t block_length) {
-	uint8_t carry = 0;
-	for(int i = block_length - 1; i >= 0; i--) {
-		uint8_t save_carry = (ptr[i] & 0x80)?1:0;
-		ptr[i] <<= 1;
-		ptr[i] |= carry;
-		carry = save_carry;
-	}
-	return carry;
+// mode_in is zero for encrypt, non-zero for decrypt
+void init_xex(uint8_t *nonce, size_t nonce_len, uint8_t mode_in) {
+	// Save the mode for later.
+	mode = mode_in;
+	// Clear it out
+	memset(tweak, 0, sizeof(tweak));
+	memcpy(tweak, nonce, MIN(nonce_len, sizeof(tweak)));
+	encrypt_ECB(tweak); // encrypt the tweak. We're now ready to go.
 }
+
+// This is used both by the CMAC code to build K1 and K2 and
+// by the XEX code to build the next tweak value. It works
+// because both cases require multiplying a constant by
+// 2^n over GF(128), where n counts from 0 upwards. Each
+// call to this method raises the exponent by one - in other
+// words, it multiplies by 2 within GF(128).
+//
+// If you understand that, then you're better at this than I am.
+static void galois_mult(uint8_t *block, size_t block_len) {
+	uint8_t carry = 0;
+	for(int i = block_len - 1; i >= 0; i--) {
+		uint8_t next_carry = (block[i] & 0x80) != 0;
+		block[i] <<= 1;
+		block[i] |= carry?1:0;
+		carry = next_carry;
+	}
+	// If the carry from the left shift is 1, then XOR RBin at the bottom
+	if (carry)
+		block[block_len - 1] ^= RB;
+}
+
+void process_xex_block(uint8_t *data) {
+	if (mode) {
+		AES.CTRL |= AES_DECRYPT_bm;
+	} else {
+		AES.CTRL &= ~(AES_DECRYPT_bm);
+	}
+	// on the way into AES, XOR the data with the tweak block.
+	for(int i = 0; i < BLOCKSIZE; i++) {
+		AES.STATE = data[i] ^ tweak[i];
+		AES.KEY = mode?dec_key[i]:key[i];
+	}
+	AES.CTRL |= AES_START_bm;
+	while(!(AES.STATUS & AES_SRIF_bm)) ; // wait for it
+	// And on the way out of AES, XOR the data with the tweak again.
+	// XEX... get it?
+	for(int i = 0; i < BLOCKSIZE; i++) {
+		data[i] = AES.STATE ^ tweak[i];
+	}
+	// now make the next tweak block.
+	galois_mult(tweak, sizeof(tweak));
+}
+
 
 // perform an AES CMAC signature on the given buffer.
 void CMAC(uint8_t *buf, size_t buf_length, uint8_t *sigbuf) {
@@ -192,20 +166,12 @@ void CMAC(uint8_t *buf, size_t buf_length, uint8_t *sigbuf) {
 	memset(kn, 0, BLOCKSIZE); // start with 0.
 	encrypt_ECB(kn);
 
-	// First, figure out k1. That's a left-shift of "k0",
-	// and if the top bit of k0 was 1, we XOR with RB.
-	uint8_t save_carry = (kn[0] & 0x80) != 0;
-	leftShiftBlock(kn, BLOCKSIZE);
-	if (save_carry)
-		kn[BLOCKSIZE - 1] ^= RB;
+	// K1 is a galois field 128 multiplication-by-2 operation on "k0".
+	galois_mult(kn, sizeof(kn));
 
 	if (buf_length % BLOCKSIZE) {
 		// We must now make k2, which is just the same thing again.
-		save_carry = (kn[0] & 0x80) != 0;
-		leftShiftBlock(kn, BLOCKSIZE);
-		if (save_carry)
-			kn[BLOCKSIZE - 1] ^= RB;
-
+		galois_mult(kn, sizeof(kn));
 	}
 
 	memset(sigbuf, 0, BLOCKSIZE); // start with 0.
