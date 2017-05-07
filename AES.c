@@ -22,15 +22,14 @@
 This file uses the ATXmega AES subsystem for WDE for Orthrus. It
 has two basic purposes:
 
-1. It processes disk blocks with AES counter mode given a BLOCKSIZE-2 sized
-nonce. It does this by creating a disk block size buffer of pre-cipher-text
-for XORing with the incoming data. It creates the buffer using DMA
-so that as much of the CPU is available in the foreground as possible.
+1. It processes disk blocks with AES XEX mode given a BLOCKSIZE sized
+nonce. It does this by presenting an interface to process BLOCKSIZE
+blocks of the disk sector at a time and an initialization method to
+prepare for each block's encryption or decryption.
 
 2. It performs AES CMAC operations. These are used in the key derivation process
 as whitening for the entropy generator output, and to derive the WDE key from
-the contents of the two key blocks on the cards. CMAC is done completely
-in the foreground - no interrupts or DMA.
+the contents of the two key blocks on the cards.
 
 */
 
@@ -45,11 +44,11 @@ in the foreground - no interrupts or DMA.
 #define DMA_CH_TRIGSRC_AES_gc (0x04<<0)
 #endif
 
-// This is a CMAC constant related to the key size.
+// This is XORed in with the bottom byte after the bit shift to
+// perform a multiply-by-two over GF(128).
 #define RB (0x87)
 
-uint8_t tweak[BLOCKSIZE];
-uint8_t key[KEYSIZE], dec_key[KEYSIZE], mode;
+uint8_t tweak[BLOCKSIZE], key[KEYSIZE], dec_key[KEYSIZE], mode;
 
 void init_aes(void) {
 	clearKeys();
@@ -71,6 +70,9 @@ void clearKeys(void) {
 void generateDecryptKey(void) {
 	// Encrypt mode
 	AES.CTRL &= ~(AES_DECRYPT_bm);
+	// Note that this presumes BLOCKSIZE == KEYSIZE. Look for
+	// similar constructions throughout this file if you upgrade
+	// to, say, AES-256, with better hardware.
 	for(int i = 0; i < BLOCKSIZE; i++) {
 		AES.KEY = key[i];
 		AES.STATE = 0;
@@ -170,7 +172,7 @@ void CMAC(uint8_t *buf, size_t buf_length, uint8_t *sigbuf) {
 	galois_mult(kn, sizeof(kn));
 
 	if (buf_length % BLOCKSIZE) {
-		// We must now make k2, which is just the same thing again.
+		// We must now make K2, which is just the same thing again.
 		galois_mult(kn, sizeof(kn));
 	}
 
