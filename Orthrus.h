@@ -21,6 +21,7 @@
 
 Pins:
 
+PC0 - RNGPWR - power on/off for the RNG
 PC1 - !CDA - card detect A - requires pull-up
 PC2 - !CDB - card detect B - requires pull-up
 PC3 - !CSA - card select A
@@ -38,7 +39,7 @@ PA0 - LED_RDY - the ready LED
 PA1 - LED_ACT - the activity LED
 PA2 - LED_ERR - the error LED
 PA3 - !SW0 - the history eraser button - requires pull-up
-PA4 - !CARDEN - power on/off for the SD cards
+PA4 - !CRDPWR - power on/off for the SD cards
 
 PD0 - RNG - The output from the entropy generator
 
@@ -73,6 +74,7 @@ In addition, USARTE0 is the diag port (currently unused).
 
 #include <avr/io.h>
 
+#define RNGPWR_bm (1<<0)
 #define CS_A_bm (1<<3)
 #define CS_B_bm (1<<4)
 #define CD_A_bm (1<<1)
@@ -99,6 +101,9 @@ In addition, USARTE0 is the diag port (currently unused).
 #define CARD_POWER_OFF do { PORTC.DIRCLR = (1<<3) | (1<<4) | (1<<5) | (1<<7); PORTA.OUTSET = CRDPWR_bm; } while(0)
 // Turn the card power on and make the correct card logic lines outputs and force both !CS lines high
 #define CARD_POWER_ON do { DEASSERT_CARDS; PORTC.DIRSET = (1<<3) | (1<<4) | (1<<5) | (1<<7); PORTA.OUTCLR = CRDPWR_bm; } while(0)
+
+#define RNG_POWER_ON (PORTC.OUTSET = RNGPWR_bm)
+#define RNG_POWER_OFF (PORTC.OUTCLR = RNGPWR_bm)
 
 #define RNG_bm (1<<0)
 #define RNG_STATE (PORTD.IN & RNG_bm)

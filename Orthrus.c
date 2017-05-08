@@ -153,6 +153,9 @@ uint8_t prepVolume(void) {
 uint8_t initVolume(void) {
 	uint8_t blockbuf[128];
 
+	RNG_POWER_ON;
+	randomByte(); // throw the first one away... just in case of startup delay.
+
 	// Magic
 	memcpy_P(blockbuf, MAGIC, strlen_P(MAGIC));
 
@@ -176,6 +179,9 @@ uint8_t initVolume(void) {
 
 	// nonce block B
 	fillRandomBuffer(blockbuf + 80);
+
+	// And we're done here.
+	RNG_POWER_OFF;
 
 	blockbuf[96] = 1; // card B
 	if (writeKeyBlock(1, blockbuf, sizeof(blockbuf))) return 1;
@@ -267,8 +273,9 @@ void diag_tx(uint8_t data) {
 #endif
 
 void init_ports(void) {
-	// start with LEDs and card power off - do this before changing direction.
+	// start with LEDs, RNG and card power off - do this before changing direction.
 	CARD_POWER_OFF;
+	RNG_POWER_OFF;
 	LED_OFF(LED_RDY_bm | LED_ACT_bm | LED_ERR_bm);
 	// LED and cardpower pins are output, switch is input.
 	PORTA.DIRSET = (1<<0) | (1<<1) | (1<<2) | (1<<4);
@@ -287,8 +294,9 @@ void init_ports(void) {
 #endif
 
 	// Port C direction is largely set by CARD_POWER_OFF.
-	// The only thing of note we'd do is set the card detect
-	// pins to inputs, and they already are.
+	// The only thing of note we do is set the card detect
+	// pins to inputs (and they already are), and set RNGPWR to output.
+	PORTC.DIRSET = (1<<0);
 	// pull-up on MISO and the two card detect pins
 	PORTCFG.MPCMASK = (1<<1) | (1<<2) | (1<<6);
 	PORTC.PIN1CTRL = PORT_OPC_PULLUP_gc;
