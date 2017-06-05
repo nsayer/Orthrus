@@ -49,7 +49,7 @@ In addition, USARTE0 is the diag port (currently unused).
 
 // Hardware starting with board version v2.0.2 swap MOSI and SCK. For those
 // versions, define PINSWAP, leaving it undefined for previous versions.
-//#define PINSWAP
+#define PINSWAP
 
 // To use USART0 in SPI Master mode instead of traditional SPI, turn this on.
 // (Since it's supposed to be faster, you probably want it on...
