@@ -24,8 +24,8 @@ Pins:
 PC0 - RNGPWR - power on/off for the RNG
 PC1 - !CDA - card detect A - requires pull-up
 PC2 - !CDB - card detect B - requires pull-up
-PC3 - !CSA - card select A
-PC4 - !CSB - card select B
+PC3 - !CS - chip select
+PC4 - A/!B - Pick between card A and B
 PC5 - SCK
 PC6 - MISO
 PC7 - MOSI
@@ -75,17 +75,17 @@ In addition, USARTE0 is the diag port (currently unused).
 #include <avr/io.h>
 
 #define RNGPWR_bm (1<<0)
-#define CS_A_bm (1<<3)
-#define CS_B_bm (1<<4)
+#define CS_bm (1<<3)
+#define A_NOT_B_bm (1<<4)
 #define CD_A_bm (1<<1)
 #define CD_B_bm (1<<2)
 #define CD_MASK (CD_A_bm | CD_B_bm)
 #define CD_STATE (!(PORTC.IN & CD_MASK))
 
-// Assert the card CS line, 0 for A, 1 for B
-#define ASSERT_CARD(x) (PORTC.OUTCLR = ~((x)?CS_B_bm:CS_A_bm))
+// Pick a card.
+#define ASSERT_CARD(x) do { if (x) PORTC.OUTCLR = A_NOT_B_bm; else PORTC.OUTSET = A_NOT_B_bm; PORTC.OUTCLR = CS_bm; } while(0)
 // Deassert both cards (only one will be asserted at a time, but this is ok)
-#define DEASSERT_CARDS (PORTC.OUTSET = (CS_A_bm | CS_B_bm))
+#define DEASSERT_CARDS (PORTC.OUTSET = CS_bm)
 
 #define LED_RDY_bm (1<<0)
 #define LED_ACT_bm (1<<1)
@@ -98,9 +98,9 @@ In addition, USARTE0 is the diag port (currently unused).
 
 #define CRDPWR_bm (1<<4)
 // Turn the card power off and make all card logic lines inputs (hi impedance)
-#define CARD_POWER_OFF do { PORTC.DIRCLR = (1<<3) | (1<<4) | (1<<5) | (1<<7); PORTA.OUTSET = CRDPWR_bm; } while(0)
+#define CARD_POWER_OFF do { PORTC.DIRCLR = (1<<3) | (1<<5) | (1<<7); PORTA.OUTSET = CRDPWR_bm; } while(0)
 // Turn the card power on and make the correct card logic lines outputs and force both !CS lines high
-#define CARD_POWER_ON do { DEASSERT_CARDS; PORTC.DIRSET = (1<<3) | (1<<4) | (1<<5) | (1<<7); PORTA.OUTCLR = CRDPWR_bm; } while(0)
+#define CARD_POWER_ON do { DEASSERT_CARDS; PORTC.DIRSET = (1<<3) | (1<<5) | (1<<7); PORTA.OUTCLR = CRDPWR_bm; } while(0)
 
 #define RNG_POWER_ON (PORTC.OUTSET = RNGPWR_bm)
 #define RNG_POWER_OFF (PORTC.OUTCLR = RNGPWR_bm)

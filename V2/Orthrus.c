@@ -295,8 +295,8 @@ void init_ports(void) {
 
 	// Port C direction is largely set by CARD_POWER_OFF.
 	// The only thing of note we do is set the card detect
-	// pins to inputs (and they already are), and set RNGPWR to output.
-	PORTC.DIRSET = (1<<0);
+	// pins to inputs (and they already are), and set RNGPWR and A/!B to output.
+	PORTC.DIRSET = (1<<0) | (1 << 4);
 	// pull-up on MISO and the two card detect pins
 	PORTCFG.MPCMASK = (1<<1) | (1<<2) | (1<<6);
 	PORTC.PIN1CTRL = PORT_OPC_PULLUP_gc;

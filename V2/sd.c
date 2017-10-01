@@ -242,6 +242,7 @@ uint8_t init(void) {
 		SPI_byte(0xff);
 	}
 
+#if 0
 	// This is tricky. We have to perform at least one CMD0 with CS asserted.... on both cards.
 	// This isn't really kosher, since both cards will be on MISO at the same time, but we'll
 	// ignore it. Each individual card will get their own CMD0, but at that point both will
@@ -250,6 +251,8 @@ uint8_t init(void) {
 	ASSERT_CARD(1);
 	sendCommand_R1(0, 0);
 	DEASSERT_CARDS;
+#endif
+
 	if (init_card(0)) return 1; // card A
 
 	if (init_card(1)) return 1; // card B
