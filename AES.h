@@ -30,8 +30,8 @@ void setKey(uint8_t *k);
 void clearKeys(void);
 
 // Call this at the start of each block I/O with the nonce value
-// and 0 for encrypt, 1 for decrypt.
-void init_xex(uint8_t *nonce, size_t nonce_len, uint8_t mode_in);
+// and mode (encrypt or decrypt).
+void init_xex(uint8_t *nonce, size_t nonce_len, enum aes_action mode_in);
 
 // Call this with BLOCKSIZE bytes at a time.
 void process_xex_block(uint8_t *data);
