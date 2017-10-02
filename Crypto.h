@@ -17,10 +17,6 @@
  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include <atmel_start.h>
-#include <AES.h>
-#include <MCI.h>
-
 /*
  * The keyblock on each card looks like this:
  * 00-0F: magic value

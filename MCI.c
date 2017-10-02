@@ -24,8 +24,10 @@ extern uint32_t millis; // from main.
 
 #define INIT_TIMEOUT (1000UL)
 
-// 25 MHz
-#define MCI_CLOCK (25000000UL)
+// 50 MHz - It's not strictly speaking kosher to go above 25
+// without asking first, but almost no cards nowadays don't
+// support it.
+#define MCI_CLOCK (50000000UL)
 #define INIT_MCI_CLOCK (400000UL)
 
 // 4 bits wide
