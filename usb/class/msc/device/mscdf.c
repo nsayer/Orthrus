@@ -736,7 +736,7 @@ int32_t mscdf_xfer_blocks(bool rd, uint8_t *blk_addr, uint32_t blk_cnt)
 				 * All the data have been written into disk.
 				 */
 				mscdf_csw.bCSWStatus = USB_CSW_STATUS_PASS;
-				return mscdf_send_csw();
+				return mscdf_send_csw()?ERR_NONE:ERR_FAILURE;
 			} else {
 				return ERR_INVALID_ARG;
 			}
