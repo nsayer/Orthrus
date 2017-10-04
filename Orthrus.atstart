@@ -33,14 +33,14 @@ middlewares:
   USB_DEVICE_MSC_0:
     user_label: USB_DEVICE_MSC_0
     configuration:
-      usb_msc_bcddevice: 256
+      usb_msc_bcddevice: 768
       usb_msc_bcdusb: USB 2.0 version
       usb_msc_bmattri: Bus power supply, not support for remote wakeup
       usb_msc_bmaxpksz0: 64 bytes
       usb_msc_bmaxpower: 150
       usb_msc_bulkin_epaddr: EndpointAddress = 0x81
       usb_msc_bulkin_maxpksz: 64 bytes
-      usb_msc_bulkout_epaddr: EndpointAddress = 0x01
+      usb_msc_bulkout_epaddr: EndpointAddress = 0x02
       usb_msc_bulkout_maxpksz: 64 bytes
       usb_msc_idproduct: 49344
       usb_msc_idvender: 2889
@@ -187,7 +187,7 @@ drivers:
       pck6_presc: 1
       pllack_arch_enable: true
       pllack_div: 1
-      pllack_mul: 18
+      pllack_mul: 25
       pllack_ref_clock: Main Clock (MAINCK)
       systick_clk_clock_div: '8'
       systick_clk_clock_source: Master Clock Controller (PMC_MCKR)
@@ -199,7 +199,7 @@ drivers:
       usb_48m_div: 5
       xosc20m_arch_enable: true
       xosc20m_bypass: The external crystal oscillator is not bypassed.
-      xosc20m_selector: 16000000
+      xosc20m_selector: 12000000
       xosc20m_startup_time: 62
       xosc32k_arch_enable: false
       xosc32k_bypass: The 32kHz crystal oscillator is not bypassed.
@@ -253,10 +253,10 @@ drivers:
     functionality: USB
     api: HAL:Driver:USB_Device
     configuration:
-      usbd_arch_max_ep_n: 3 (EP03/EP83)
+      usbd_arch_max_ep_n: 2 (EP02/EP82)
       usbd_arch_speed: High speed
       usbd_dma_enable: true
-      usbd_num_ep_sp: 4 (EP0 + 3 endpoints)
+      usbd_num_ep_sp: 3 (EP0 + 2 endpoints)
     optional_signals: []
     variant: null
     clocks:
