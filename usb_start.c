@@ -24,7 +24,7 @@ static uint32_t xfer_addr;
 static int32_t num_blocks;
 static bool xfer_busy;
 
-static uint8_t blockbuf[SECTOR_SIZE];
+COMPILER_ALIGNED(4) uint8_t blockbuf[SECTOR_SIZE];
 
 static uint8_t single_desc_bytes[] = {
     /* Device descriptors and Configuration descriptors list. */
@@ -105,8 +105,11 @@ static uint8_t inquiry_info[CONF_USB_MSC_MAX_LUN + 1][36] = {DISK_INFORMATION(0)
 #endif
 };
 
+static bool in_attention;
+
 void set_state(enum usb_volume_state st_in) {
 	vol_state = st_in;
+	in_attention = true;
 }
 	
 /**
@@ -123,6 +126,18 @@ static int32_t disk_eject(uint8_t lun)
 	return ERR_UNSUPPORTED_OP;
 }
 
+static int32_t check_state() {
+	int32_t ret = ERR_NOT_FOUND;
+	if (in_attention) {
+		ret = ERR_ABORTED;
+		} else if (vol_state == NOT_READY) {
+		ret = ERR_NOT_READY;
+		} else {
+		ret = ERR_NONE;
+	}
+	return ret;
+}
+
 /**
  * \brief Inquiry whether Disk is ready
  * \param[in] lun logic unit number
@@ -133,9 +148,9 @@ static int32_t disk_is_ready(uint8_t lun)
 	if (lun > CONF_USB_MSC_MAX_LUN) {
 		return ERR_NOT_FOUND;
 	}
-	int32_t ret = (vol_state == READY)?ERR_NONE:ERR_NOT_READY;
-	// Once we've returned a false once, we can go back to being READY.
-	if (vol_state == BOUNCING) vol_state = READY;
+	int32_t ret = check_state();
+	// Once we've been checked here, an ATTENTION state is cleared.
+	in_attention = false;
 	return ret;
 }
 
@@ -148,7 +163,10 @@ static int32_t disk_is_ready(uint8_t lun)
  */
 static int32_t msc_new_read(uint8_t lun, uint32_t addr, uint32_t nblocks)
 {
-	if (lun > CONF_USB_MSC_MAX_LUN || vol_state != READY) {
+	int32_t ret = check_state();
+	if (ret != ERR_NONE) return ret;
+	
+	if (lun > CONF_USB_MSC_MAX_LUN) {
 		return ERR_NOT_READY;
 	}
 
@@ -169,10 +187,12 @@ static int32_t msc_new_read(uint8_t lun, uint32_t addr, uint32_t nblocks)
  */
 static int32_t msc_new_write(uint8_t lun, uint32_t addr, uint32_t nblocks)
 {
-	if (lun > CONF_USB_MSC_MAX_LUN || vol_state != READY) {
+	int32_t ret = check_state();
+	if (ret != ERR_NONE) return ret;
+
+	if (lun > CONF_USB_MSC_MAX_LUN) {
 		return ERR_NOT_READY;
 	}
-
 	xfer_dir  = WRITE;
 	xfer_addr = addr;
 	num_blocks = nblocks;
@@ -206,10 +226,10 @@ void disk_task(void)
 	if (xfer_busy) return; // USB is busy
 	if (num_blocks < 0) return; // the whole system is idle
 	if (xfer_dir == READ) {
+		xfer_busy = true;
 		readVolumeBlock(xfer_addr++, blockbuf);
 		if (ERR_NONE != mscdf_xfer_blocks(true, blockbuf, 1))
 			ASSERT(false);
-		xfer_busy = true;
 		if (--num_blocks == 0) {
 			// we're done (once we're no longer busy).
 			num_blocks = -1;
@@ -218,13 +238,19 @@ void disk_task(void)
 	} else {
 		// We previously did a transfer into blockbuf
 		writeVolumeBlock(xfer_addr++, blockbuf);
-		if (--num_blocks >= 0) {
+		if (--num_blocks > 0) {
+			xfer_busy = true;
 			if (ERR_NONE != mscdf_xfer_blocks(false, blockbuf, 1))
 				ASSERT(false);
-			xfer_busy = true;
 		} else {
-			if (ERR_NONE != mscdf_xfer_blocks(false, blockbuf, 0))
+			// This special call tells the MSC system that the block
+			// is committed and the ACK can be sent to the host.
+			xfer_busy = true;
+			volatile uint8_t result = mscdf_xfer_blocks(false, blockbuf, 0);
+			if (ERR_NONE != result)
 				ASSERT(false);
+			num_blocks = -1;
+			xfer_busy = false;
 		}
 	}
 }
@@ -236,7 +262,7 @@ void disk_task(void)
  */
 static uint8_t *msc_inquiry_info(uint8_t lun)
 {
-        if (lun > CONF_USB_MSC_MAX_LUN || vol_state != READY) {
+        if (lun > CONF_USB_MSC_MAX_LUN) {
                 return NULL;
         } else {
                 num_blocks = -1;

@@ -23,6 +23,8 @@
 #include <Crypto.h>
 #include <hpl_delay.h>
 #include <usb_start.h>
+#include <hpl_pmc_config.h>
+
 
 enum volume_states { NO_CARDS, ERROR, OK, UNINITIALIZED };
 enum button_states { UP, DOWN, IGNORING };
@@ -44,7 +46,6 @@ static void milli_timer_cb(const struct timer_task *const timer_task) {
 	millis++;
 }
 
-#include <hpl_pmc_config.h>
 int main(void)
 {
 
@@ -127,9 +128,6 @@ error:
 				button_state = IGNORING;
 				gpio_set_pin_level(LED_ERR, false);
 				gpio_set_pin_level(LED_RDY, false);
-				if (state == OK) {
-					set_state(BOUNCING);
-				}
 				if (initVolume()) {
 					gpio_set_pin_level(LED_ERR, false);
 					gpio_set_pin_level(LED_RDY, true);
@@ -139,6 +137,7 @@ error:
 					gpio_set_pin_level(LED_ERR, true);
 					gpio_set_pin_level(LED_RDY, false);
 					state = ERROR;
+					set_state(NOT_READY);
 				}
 			} else {
 				// Make the ERROR LED blink as a warning

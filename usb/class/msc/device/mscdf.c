@@ -167,6 +167,11 @@ static void mscdf_request_sense(int32_t err_codes)
 		mscdf_sense_data.AddSense       = BE16(SCSI_ASC_MEDIUM_NOT_PRESENT);
 		break;
 
+	case ERR_ABORTED:
+		mscdf_sense_data.sense_flag_key = SCSI_SK_UNIT_ATTENTION;
+		mscdf_sense_data.AddSense       = BE16(SCSI_ASC_MEDIUM_NOT_PRESENT);
+		break;	
+
 	case ERR_BUSY:
 		mscdf_sense_data.sense_flag_key = SCSI_SK_UNIT_ATTENTION;
 		mscdf_sense_data.AddSense       = BE16(SCSI_ASC_NOT_READY_TO_READY_CHANGE);
@@ -369,6 +374,7 @@ static bool mscdf_cb_ep_bulk_out(const uint8_t ep, const enum usb_xfer_code rc, 
 				} else {
 					pcsw->bCSWStatus = USB_CSW_STATUS_FAIL;
 					mscdf_request_sense(ERR_NOT_FOUND);
+					pcsw->dCSWDataResidue = 0;
 					return mscdf_terminate_in();
 				}
 
@@ -377,7 +383,7 @@ static bool mscdf_cb_ep_bulk_out(const uint8_t ep, const enum usb_xfer_code rc, 
 				return mscdf_read_write(count);
 
 			case SPC_PREVENT_ALLOW_MEDIUM_REMOVAL:
-				if (0x00 == pcbw->CDB[4]) {
+				if (true || 0x00 == pcbw->CDB[4]) {
 					// NO! We can't prevent yanking of cards
 					pcsw->bCSWStatus = USB_CSW_STATUS_FAIL;
 					mscdf_request_sense(ERR_UNSUPPORTED_OP);
@@ -395,6 +401,7 @@ static bool mscdf_cb_ep_bulk_out(const uint8_t ep, const enum usb_xfer_code rc, 
 							pcsw->dCSWDataResidue = 0;
 						} else {
 							pcsw->bCSWStatus = USB_CSW_STATUS_FAIL;
+							pcsw->dCSWDataResidue = 0;
 							mscdf_request_sense(ret);
 						}
 					} else {
@@ -422,10 +429,12 @@ static bool mscdf_cb_ep_bulk_out(const uint8_t ep, const enum usb_xfer_code rc, 
 						pcsw->dCSWDataResidue = 0;
 					} else {
 						pcsw->bCSWStatus = USB_CSW_STATUS_FAIL;
+						pcsw->dCSWDataResidue = 0;
 						mscdf_request_sense(ret);
 					}
 				} else {
 					pcsw->bCSWStatus = USB_CSW_STATUS_FAIL;
+					pcsw->dCSWDataResidue = 0;
 					mscdf_request_sense(ERR_NOT_FOUND);
 				}
 				return mscdf_send_csw();

@@ -23,8 +23,10 @@ void usbd_msc_example(void);
  */
 void usb_init(void);
 
-enum usb_volume_state {NOT_READY, READY, BOUNCING};
+enum usb_volume_state {NOT_READY, READY};
 
+// Any call to this method will cause a UNIT_ATTENTION until a ready
+// check is done, and then will take on the new state
 void set_state(enum usb_volume_state state);
 
 // call this from the main event loop
