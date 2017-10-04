@@ -86,6 +86,8 @@ static bool do_card_init(bool card) {
 	card_size[card] = ((uint32_t)(resp_buf[7] & 0x3f)) << 16; // lop off the reserved bytes
 	card_size[card] |= ((uint32_t)resp_buf[8]) << 8;
 	card_size[card] |= ((uint32_t)resp_buf[9]) << 0;
+	card_size[card]++;
+	card_size[card] <<= 10;
 
 	// We must perform the switch to 4 bit mode in "selected" state.
 	if (!mci_sync_send_cmd(&MCI_0, 7 | MCI_RESP_PRESENT | MCI_RESP_BUSY | MCI_RESP_CRC, rca[card] << 16)) goto error;

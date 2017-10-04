@@ -22,18 +22,20 @@
 #include <MCI.h>
 #include <Crypto.h>
 #include <hpl_delay.h>
+#include <usb_start.h>
 
-enum volume_states { NO_CARDS, ERROR, READY, UNINITIALIZED };
+enum volume_states { NO_CARDS, ERROR, OK, UNINITIALIZED };
 enum button_states { UP, DOWN, IGNORING };
 	
-enum volume_states state;
-enum button_states button_state;
+static enum volume_states state;
+static enum button_states button_state;
 
-struct timer_task milli_task;
+static struct timer_task milli_task;
+
+static uint32_t button_start;
 
 // Millisecond counter - used for dealing with the button
 volatile uint32_t millis;
-uint32_t button_start;
 
 static void milli_timer_cb(const struct timer_task *const timer_task) {
 	millis++;
@@ -56,7 +58,8 @@ int main(void)
 	
 	state = NO_CARDS;
 	button_state = UP;
-
+	set_state(NOT_READY);
+	
 	while (1) {
 		
 		bool cards_in = !gpio_get_pin_level(CARD_DETECT_A) && !gpio_get_pin_level(CARD_DETECT_B);
@@ -70,11 +73,11 @@ int main(void)
 				if (!prepVolume()) {
 					state = UNINITIALIZED;
 					goto error;
-				}
-								
-				state = READY;
+				}							
+				state = OK;
 				gpio_set_pin_level(LED_RDY, true);
 				gpio_set_pin_level(LED_ERR, false);
+				set_state(READY);
 				continue;
 error:
 				gpio_set_pin_level(LED_ERR, true);
@@ -86,8 +89,8 @@ error:
 				// cards have just been removed. Turn everything off.
 				shutdown_cards();
 				clearKeys();
-				if (state == READY) {
-					// XXX do something to forcibly unmount the volume
+				if (state == OK) {
+					set_state(NOT_READY);
 				}
 				state = NO_CARDS;
 				gpio_set_pin_level(LED_ERR, false);
@@ -102,13 +105,14 @@ error:
 				button_state = IGNORING;
 				gpio_set_pin_level(LED_ERR, false);
 				gpio_set_pin_level(LED_RDY, false);
-				if (state == READY) {
-					// XXX Have to do something in here to forcibly unmount.
+				if (state == OK) {
+					set_state(BOUNCING);
 				}
 				if (initVolume()) {
 					gpio_set_pin_level(LED_ERR, false);
 					gpio_set_pin_level(LED_RDY, true);
-					state = READY;
+					state = OK;
+					set_state(READY);
 				} else {
 					gpio_set_pin_level(LED_ERR, true);
 					gpio_set_pin_level(LED_RDY, false);
@@ -125,7 +129,7 @@ error:
 		if (button) {
 			switch(button_state) {
 				case UP:
-					if (state == UNINITIALIZED || state == READY) {
+					if (state == UNINITIALIZED || state == OK) {
 						button_state = DOWN;
 						button_start = millis;
 					} else {
@@ -139,7 +143,7 @@ error:
 			}
 		} else {
 			if (button_state != UP) {
-				if (state == READY) {
+				if (state == OK) {
 					gpio_set_pin_level(LED_RDY, true);
 					gpio_set_pin_level(LED_ERR, false);
 				} else if (state == ERROR || state == UNINITIALIZED) {
@@ -149,10 +153,6 @@ error:
 			}
 			button_state = UP;
 		}
-
-/*
-		usb_task();
 		disk_task();
-*/
 	}
 }
