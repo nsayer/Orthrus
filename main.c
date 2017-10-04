@@ -34,6 +34,9 @@ static struct timer_task milli_task;
 
 static uint32_t button_start;
 
+// 128 bit unique ID
+uint8_t unique_id[16];
+
 // Millisecond counter - used for dealing with the button
 volatile uint32_t millis;
 
@@ -41,10 +44,29 @@ static void milli_timer_cb(const struct timer_task *const timer_task) {
 	millis++;
 }
 
+#include <hpl_pmc_config.h>
 int main(void)
 {
+
+// Start doesn't do this for you, it seems.
+#if (CONF_XOSC20M_SELECTOR == 16000000)
+	UTMI->UTMI_CKTRIM &= ~UTMI_CKTRIM_FREQ_Msk;
+	UTMI->UTMI_CKTRIM |= UTMI_CKTRIM_FREQ(UTMI_CKTRIM_FREQ_XTAL16);
+#endif
+
 	/* Initializes MCU, drivers and middleware */
 	atmel_start_init();
+
+/*
+	// This doesn't work - we're executing code where this paging happens.
+	// fetch the unique ID
+	memset(unique_id, 0, sizeof(unique_id));
+	EFC->EEFC_FCR = (EEFC_FCR_FKEY_PASSWD | EEFC_FCR_FCMD_STUI);
+	while ((EFC->EEFC_FSR & EEFC_FSR_FRDY) != EEFC_FSR_FRDY);
+	memcpy(unique_id, (void*)0x00400000, sizeof(unique_id));
+	EFC->EEFC_FCR = (EEFC_FCR_FKEY_PASSWD | EEFC_FCR_FCMD_SPUI);
+	while ((EFC->EEFC_FSR & EEFC_FSR_FRDY) != EEFC_FSR_FRDY);
+*/
 
 	aes_sync_enable(&CRYPTOGRAPHY_0);
 
