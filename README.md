@@ -14,6 +14,13 @@ access until and unless an ERASE is performed. You can also load the code in via
 SWD over the JTAG connector. Again, setting the security bit after flashing is
 recommended for production use.
 
+There is also a single .java file. This is a standalone tool that will decrypt an Orthrus
+volume given two card image files. It's both a correctness proof for the firmware and
+a hardware failure recovery tool.
+
+V2
+--
+
 The V2 directory contains the old LUFA based code for the ATXMega32u4 hardware. The
 old README content for that is here:
 
