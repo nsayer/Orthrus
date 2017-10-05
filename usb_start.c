@@ -1,10 +1,22 @@
 /*
- * Code generated from Atmel Start.
- *
- * This file will be overwritten when reconfiguring your Atmel Start project.
- * Please copy examples or other code you want to keep to a separate file or main.c
- * to avoid loosing it when reconfiguring.
+
+ Copyright 2017 Nicholas W. Sayer
+
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 2 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along
+ with this program; if not, write to the Free Software Foundation, Inc.,
+ 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+
 #include "atmel_start.h"
 #include "usb_start.h"
 #include <Crypto.h>
@@ -44,66 +56,8 @@ static uint8_t ctrl_buffer[64];
 		    CONF_USB_MSC_LUN##n##_PRODUCT, CONF_USB_MSC_LUN##n##_PRODUCT_VERSION                                       \
 	}
 
-#define DISK_CAPACITY(n)                                                                                               \
-	{                                                                                                                  \
-		(uint8_t)(CONF_USB_MSC_LUN##n##_LAST_BLOCK_ADDR >> 24),                                                        \
-		    (uint8_t)(CONF_USB_MSC_LUN##n##_LAST_BLOCK_ADDR >> 16),                                                    \
-		    (uint8_t)(CONF_USB_MSC_LUN##n##_LAST_BLOCK_ADDR >> 8),                                                     \
-		    (uint8_t)(CONF_USB_MSC_LUN##n##_LAST_BLOCK_ADDR >> 0),                                                     \
-		    (uint8_t)((uint32_t)(CONF_USB_MSC_LUN##n##_BLOCK_SIZE) >> 24),                                             \
-		    (uint8_t)((uint32_t)(CONF_USB_MSC_LUN##n##_BLOCK_SIZE) >> 16),                                             \
-		    (uint8_t)((uint32_t)(CONF_USB_MSC_LUN##n##_BLOCK_SIZE) >> 8),                                              \
-		    (uint8_t)((uint32_t)(CONF_USB_MSC_LUN##n##_BLOCK_SIZE) >> 0)                                               \
-	}
-
 /* Inquiry Information */
-static uint8_t inquiry_info[CONF_USB_MSC_MAX_LUN + 1][36] = {DISK_INFORMATION(0),
-#if CONF_USB_MSC_LUN1_ENABLE == 1
-                                                             DISK_INFORMATION(1),
-#endif
-#if CONF_USB_MSC_LUN2_ENABLE == 1
-                                                             DISK_INFORMATION(2),
-#endif
-#if CONF_USB_MSC_LUN3_ENABLE == 1
-                                                             DISK_INFORMATION(3),
-#endif
-#if CONF_USB_MSC_LUN4_ENABLE == 1
-                                                             DISK_INFORMATION(4),
-#endif
-#if CONF_USB_MSC_LUN5_ENABLE == 1
-                                                             DISK_INFORMATION(5),
-#endif
-#if CONF_USB_MSC_LUN6_ENABLE == 1
-                                                             DISK_INFORMATION(6),
-#endif
-#if CONF_USB_MSC_LUN7_ENABLE == 1
-                                                             DISK_INFORMATION(7),
-#endif
-#if CONF_USB_MSC_LUN8_ENABLE == 1
-                                                             DISK_INFORMATION(8),
-#endif
-#if CONF_USB_MSC_LUN9_ENABLE == 1
-                                                             DISK_INFORMATION(9),
-#endif
-#if CONF_USB_MSC_LUN10_ENABLE == 1
-                                                             DISK_INFORMATION(10),
-#endif
-#if CONF_USB_MSC_LUN11_ENABLE == 1
-                                                             DISK_INFORMATION(11),
-#endif
-#if CONF_USB_MSC_LUN12_ENABLE == 1
-                                                             DISK_INFORMATION(12),
-#endif
-#if CONF_USB_MSC_LUN13_ENABLE == 1
-                                                             DISK_INFORMATION(13),
-#endif
-#if CONF_USB_MSC_LUN14_ENABLE == 1
-                                                             DISK_INFORMATION(14),
-#endif
-#if CONF_USB_MSC_LUN15_ENABLE == 1
-                                                             DISK_INFORMATION(15)
-#endif
-};
+static uint8_t inquiry_info[CONF_USB_MSC_MAX_LUN + 1][36] = { DISK_INFORMATION(0) };
 
 static bool in_attention;
 
