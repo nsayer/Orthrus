@@ -49,6 +49,9 @@ static void milli_timer_cb(const struct timer_task *const timer_task) {
 int main(void)
 {
 
+	SCB_EnableICache();
+	//SCB_EnableDCache(); // NO... this screws the pooch.
+
 // Start doesn't do this for you, it seems.
 #if (CONF_XOSC20M_SELECTOR == 16000000)
 	UTMI->UTMI_CKTRIM &= ~UTMI_CKTRIM_FREQ_Msk;
