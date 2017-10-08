@@ -120,21 +120,23 @@ static bool setupBlockCrypto(uint32_t blocknum, enum aes_action mode) {
 	return !(cardA ^ cardswap);
 }
 
-bool readVolumeBlock(uint32_t blocknum, void* buf) {
+bool readVolumeBlock(uint32_t blocknum, volatile uint8_t *buf) {
 	gpio_set_pin_level(LED_ACT, true);
 	bool card = setupBlockCrypto(blocknum, AES_DECRYPT);
 	uint32_t phys_blocknum = (blocknum >> 1) + 1;
 	if (!readPhysicalBlock(card, phys_blocknum, buf)) {
 		gpio_set_pin_level(LED_ACT, false);
+		gpio_set_pin_level(LED_ERR, true);
 		return false; // ERROR
 	}
 	for(int i = 0; i < SECTOR_SIZE; i += BLOCKSIZE)
 		process_xex_block(buf + i);
 	gpio_set_pin_level(LED_ACT, false);
+	gpio_set_pin_level(LED_ERR, false);
 	return true;
 }
 	
-bool writeVolumeBlock(uint32_t blocknum, void *buf) {
+bool writeVolumeBlock(uint32_t blocknum, volatile uint8_t *buf) {
 	gpio_set_pin_level(LED_ACT, true);
 	bool card = setupBlockCrypto(blocknum, AES_ENCRYPT);
 	uint32_t phys_blocknum = (blocknum >> 1) + 1;
@@ -142,5 +144,6 @@ bool writeVolumeBlock(uint32_t blocknum, void *buf) {
 		process_xex_block(buf + i);
 	bool out = writePhysicalBlock(card, phys_blocknum, buf);
 	gpio_set_pin_level(LED_ACT, false);
+	gpio_set_pin_level(LED_ERR, !out);
 	return out;
 }

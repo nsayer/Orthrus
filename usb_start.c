@@ -29,14 +29,14 @@
 
 static enum usb_volume_state vol_state;
 
-enum xfer_dirs { READ, WRITE };
+enum xfer_dirs { IDLE, READ, WRITE };
 
 static enum xfer_dirs xfer_dir;
 static uint32_t xfer_addr;
 static int32_t num_blocks;
-static bool xfer_busy;
+volatile static bool xfer_busy;
 
-COMPILER_ALIGNED(4) uint8_t blockbuf[SECTOR_SIZE];
+volatile uint8_t blockbuf[SECTOR_SIZE];
 
 static uint8_t single_desc_bytes[] = {
     /* Device descriptors and Configuration descriptors list. */
@@ -84,9 +84,9 @@ static int32_t check_state() {
 	int32_t ret = ERR_NOT_FOUND;
 	if (in_attention) {
 		ret = ERR_ABORTED;
-		} else if (vol_state == NOT_READY) {
+	} else if (vol_state == NOT_READY) {
 		ret = ERR_NOT_READY;
-		} else {
+	} else {
 		ret = ERR_NONE;
 	}
 	return ret;
@@ -150,8 +150,8 @@ static int32_t msc_new_write(uint8_t lun, uint32_t addr, uint32_t nblocks)
 	xfer_dir  = WRITE;
 	xfer_addr = addr;
 	num_blocks = nblocks;
-	mscdf_xfer_blocks(false, blockbuf, 1);
 	xfer_busy = true;
+	ASSERT(ERR_NONE == mscdf_xfer_blocks(false, blockbuf, 1));
 
 	return ERR_NONE;
 }
@@ -177,35 +177,38 @@ static int32_t msc_xfer_done(uint8_t lun)
  */
 void disk_task(void)
 {
+	volatile uint8_t sum;
 	if (xfer_busy) return; // USB is busy
-	if (num_blocks < 0) return; // the whole system is idle
-	if (xfer_dir == READ) {
-		xfer_busy = true;
-		readVolumeBlock(xfer_addr++, blockbuf);
-		if (ERR_NONE != mscdf_xfer_blocks(true, blockbuf, 1))
-			ASSERT(false);
-		if (--num_blocks == 0) {
-			// we're done (once we're no longer busy).
-			num_blocks = -1;
-		}
-		return;
-	} else {
-		// We previously did a transfer into blockbuf
-		writeVolumeBlock(xfer_addr++, blockbuf);
-		if (--num_blocks > 0) {
+	switch(xfer_dir) {
+		case READ:
+			ASSERT(readVolumeBlock(xfer_addr++, blockbuf));
 			xfer_busy = true;
-			if (ERR_NONE != mscdf_xfer_blocks(false, blockbuf, 1))
-				ASSERT(false);
-		} else {
-			// This special call tells the MSC system that the block
-			// is committed and the ACK can be sent to the host.
-			xfer_busy = true;
-			volatile uint8_t result = mscdf_xfer_blocks(false, blockbuf, 0);
-			if (ERR_NONE != result)
-				ASSERT(false);
-			num_blocks = -1;
-			xfer_busy = false;
-		}
+			ASSERT(ERR_NONE == mscdf_xfer_blocks(true, blockbuf, 1));
+			if (--num_blocks == 0) {
+				// we're done (once we're no longer busy).
+				xfer_dir = IDLE;
+			}
+			return;
+		case WRITE:
+			// We previously did a transfer into blockbuf
+			
+			// XXX what the hell is this?!?!?!
+			delay_us(250);
+				
+			ASSERT(writeVolumeBlock(xfer_addr++, blockbuf));
+			if (--num_blocks > 0) {
+				// Fetch the next block in the background
+				xfer_busy = true;
+				ASSERT(ERR_NONE == mscdf_xfer_blocks(false, blockbuf, 1));
+			} else {
+				// This special call tells the MSC system that the write
+				// is committed and the ACK can be sent to the host.
+				xfer_busy = true;
+				ASSERT(ERR_NONE == mscdf_xfer_blocks(false, blockbuf, 0));
+				xfer_dir = IDLE;
+				xfer_busy = false;
+			}
+			return;
 	}
 }
 

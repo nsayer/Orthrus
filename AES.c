@@ -69,7 +69,7 @@ static void galois_mult(uint8_t *block, size_t block_len) {
 }
 
 // Process a BLOCKSIZE byte block of a disk block. This does crypting in-place
-void process_xex_block(uint8_t *data) {
+void process_xex_block(volatile uint8_t *data) {
 	// XOR the data with the tweak
 	for(int i = 0; i < BLOCKSIZE; i++)
 		data[i] ^= tweak[i];

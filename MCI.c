@@ -96,12 +96,16 @@ static bool do_card_init(bool card) {
 	if (!mci_sync_send_cmd(&MCI_0, 55 | MCI_RESP_PRESENT | MCI_RESP_CRC, rca[card] << 16)) goto error;
 	if (!mci_sync_send_cmd(&MCI_0, 42 | MCI_RESP_PRESENT | MCI_RESP_CRC, 0)) goto error;
 
-	// Switch to 4 bit mode. This should be the last thing done before exiting.
+	// Switch to 4 bit mode.
 	if (!mci_sync_send_cmd(&MCI_0, 55 | MCI_RESP_PRESENT | MCI_RESP_CRC, rca[card] << 16)) goto error;
 	if (!mci_sync_send_cmd(&MCI_0, 6 | MCI_RESP_PRESENT | MCI_RESP_CRC, 2)) goto error;
-	
-	// switch over to 4 bit mode and de-select the card.
+	if (mci_sync_select_device(&MCI_0, MCI_SLOT, INIT_MCI_CLOCK, MCI_BUS_WIDTH, false) != ERR_NONE) goto error;
+
+	// Switch to high speed (50 MHz)
+	if (!mci_sync_send_cmd(&MCI_0, 6 | MCI_RESP_PRESENT | MCI_RESP_CRC, 0x80fffff1)) goto error;
+	// Leave us in high speed, 4 bit mode as a side effect.
 	if (mci_sync_select_device(&MCI_0, MCI_SLOT, MCI_CLOCK, MCI_BUS_WIDTH, true) != ERR_NONE) goto error;
+
 	mci_sync_send_cmd(&MCI_0, 7, 0);
 	
 	return true;	
@@ -144,28 +148,32 @@ bool shutdown_cards() {
 // These two methods read or write a block from the given physical card slot
 // slot A is false, slot "B" is true. buf points to a SECTOR_SIZE length buffer.
 // blocknum is the block number on that card - not the volume block
-bool readPhysicalBlock(bool card, uint32_t blocknum, void* buf) {
+bool readPhysicalBlock(bool card, uint32_t blocknum, uint8_t *buf) {
 	gpio_set_pin_level(AB_SELECT, card);
 
-	if (!mci_sync_send_cmd(&MCI_0, 7 | MCI_RESP_PRESENT | MCI_RESP_BUSY | MCI_RESP_CRC, rca[card] << 16)) return false;
+	if (!mci_sync_send_cmd(&MCI_0, 7 | MCI_RESP_PRESENT | MCI_RESP_BUSY | MCI_RESP_CRC, rca[card] << 16)) goto err;
 
-	if (!mci_sync_adtc_start(&MCI_0, 17 | MCI_RESP_PRESENT | MCI_RESP_CRC | MCI_CMD_SINGLE_BLOCK, blocknum, SECTOR_SIZE, 1, true)) return false;
-	if (!mci_sync_start_read_blocks(&MCI_0, buf, 1)) return false;
-	if (!mci_sync_wait_end_of_read_blocks(&MCI_0)) return false;
+	if (!mci_sync_adtc_start(&MCI_0, 17 | MCI_RESP_PRESENT | MCI_RESP_CRC | MCI_CMD_SINGLE_BLOCK, blocknum, SECTOR_SIZE, 1, true)) goto err;
+	if (!mci_sync_start_read_blocks(&MCI_0, buf, 1)) goto err;
+	if (!mci_sync_wait_end_of_read_blocks(&MCI_0)) goto err;
 	
 	mci_sync_send_cmd(&MCI_0, 7, 0); // force de-select
 	return true;
+err:
+	return false;
 }
 
-bool writePhysicalBlock(bool card, uint32_t blocknum, void *buf) {
+bool writePhysicalBlock(bool card, uint32_t blocknum, volatile uint8_t *buf) {
 	gpio_set_pin_level(AB_SELECT, card);
-	
-	if (!mci_sync_send_cmd(&MCI_0, 7 | MCI_RESP_PRESENT | MCI_RESP_BUSY | MCI_RESP_CRC, rca[card] << 16)) return false;
 
-	if (!mci_sync_adtc_start(&MCI_0, 24 | MCI_CMD_WRITE | MCI_RESP_PRESENT | MCI_RESP_CRC | MCI_CMD_SINGLE_BLOCK, blocknum, SECTOR_SIZE, 1, true)) return false;
-	if (!mci_sync_start_write_blocks(&MCI_0, buf, 1)) return false;
-	if (!mci_sync_wait_end_of_write_blocks(&MCI_0)) return false;
+	if (!mci_sync_send_cmd(&MCI_0, 7 | MCI_RESP_PRESENT | MCI_RESP_BUSY | MCI_RESP_CRC, rca[card] << 16)) goto err;
 	
+	if (!mci_sync_adtc_start(&MCI_0, 24 | MCI_CMD_WRITE | MCI_RESP_PRESENT | MCI_RESP_CRC | MCI_CMD_SINGLE_BLOCK, blocknum, SECTOR_SIZE, 1, true)) goto err;
+	if (!mci_sync_start_write_blocks(&MCI_0, buf, 1)) goto err;
+	if (!mci_sync_wait_end_of_write_blocks(&MCI_0)) goto err;
+
 	mci_sync_send_cmd(&MCI_0, 7, 0); // force de-select
 	return true;
+err:
+	return false;
 }
