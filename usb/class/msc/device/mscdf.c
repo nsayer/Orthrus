@@ -166,17 +166,14 @@ static void mscdf_request_sense(int32_t err_codes)
 		mscdf_sense_data.sense_flag_key = SCSI_SK_NOT_READY;
 		mscdf_sense_data.AddSense       = BE16(SCSI_ASC_MEDIUM_NOT_PRESENT);
 		break;
-
 	case ERR_ABORTED:
 		mscdf_sense_data.sense_flag_key = SCSI_SK_UNIT_ATTENTION;
 		mscdf_sense_data.AddSense       = BE16(SCSI_ASC_MEDIUM_NOT_PRESENT);
 		break;	
-
 	case ERR_BUSY:
 		mscdf_sense_data.sense_flag_key = SCSI_SK_UNIT_ATTENTION;
 		mscdf_sense_data.AddSense       = BE16(SCSI_ASC_NOT_READY_TO_READY_CHANGE);
 		break;
-
 	case ERR_DENIED:
 		mscdf_sense_data.sense_flag_key = SCSI_SK_DATA_PROTECT;
 		mscdf_sense_data.AddSense       = BE16(SCSI_ASC_WRITE_PROTECTED);
@@ -759,8 +756,7 @@ int32_t mscdf_xfer_blocks(bool rd, uint8_t *blk_addr, uint32_t blk_cnt)
 				ep = _mscdf_funcd.func_ep_out;
 			}
 			_mscdf_funcd.xfer_busy = true;
-			usbdc_xfer(ep, blk_addr, _mscdf_funcd.xfer_tot_bytes, false);
-			return ERR_NONE;
+			return usbdc_xfer(ep, blk_addr, _mscdf_funcd.xfer_tot_bytes, false);
 		}
 	}
 }

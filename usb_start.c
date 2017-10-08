@@ -177,7 +177,6 @@ static int32_t msc_xfer_done(uint8_t lun)
  */
 void disk_task(void)
 {
-	volatile uint8_t sum;
 	if (xfer_busy) return; // USB is busy
 	switch(xfer_dir) {
 		case READ:
@@ -188,12 +187,12 @@ void disk_task(void)
 				// we're done (once we're no longer busy).
 				xfer_dir = IDLE;
 			}
-			return;
+			break;
 		case WRITE:
 			// We previously did a transfer into blockbuf
 			
 			// XXX what the hell is this?!?!?!
-			delay_us(250);
+			//delay_us(50);
 				
 			ASSERT(writeVolumeBlock(xfer_addr++, blockbuf));
 			if (--num_blocks > 0) {
@@ -206,9 +205,12 @@ void disk_task(void)
 				xfer_busy = true;
 				ASSERT(ERR_NONE == mscdf_xfer_blocks(false, blockbuf, 0));
 				xfer_dir = IDLE;
-				xfer_busy = false;
+				//xfer_busy = false;
 			}
-			return;
+			break;
+		case IDLE:
+			// do nothing.
+			break;
 	}
 }
 
