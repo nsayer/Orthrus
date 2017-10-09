@@ -18,6 +18,13 @@ There is also a single .java file. This is a standalone tool that will decrypt a
 volume given two card image files. It's both a correctness proof for the firmware and
 a hardware failure recovery tool.
 
+A code signing certificate has been checked in here as well. Released firmware won't
+be checked into GitHub, but will be available for download on the Hackaday project page.
+Released firmware will have a signature file alongside both the certificate and the
+binary image. Those who are cautious (or paranoid) will want to validate the signature
+and insure that the certificate matches what's checked in here (if you're extra cautious,
+you can contact the author for an offline verification).
+
 V2
 --
 
