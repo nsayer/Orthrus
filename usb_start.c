@@ -31,12 +31,12 @@ static enum usb_volume_state vol_state;
 
 enum xfer_dirs { IDLE, READ, WRITE };
 
-static enum xfer_dirs xfer_dir;
-static uint32_t xfer_addr;
-static int32_t num_blocks;
+volatile static enum xfer_dirs xfer_dir;
+volatile static uint32_t xfer_addr;
+volatile static uint32_t num_blocks;
 volatile static bool xfer_busy;
 
-volatile uint8_t blockbuf[SECTOR_SIZE];
+volatile static uint8_t blockbuf[SECTOR_SIZE];
 
 static uint8_t single_desc_bytes[] = {
     /* Device descriptors and Configuration descriptors list. */
@@ -151,7 +151,8 @@ static int32_t msc_new_write(uint8_t lun, uint32_t addr, uint32_t nblocks)
 	xfer_addr = addr;
 	num_blocks = nblocks;
 	xfer_busy = true;
-	ASSERT(ERR_NONE == mscdf_xfer_blocks(false, blockbuf, 1));
+	int32_t res = mscdf_xfer_blocks(false, blockbuf, 1);
+	ASSERT(res == ERR_NONE);
 
 	return ERR_NONE;
 }
@@ -177,12 +178,16 @@ static int32_t msc_xfer_done(uint8_t lun)
  */
 void disk_task(void)
 {
+	bool res_b;
+	int32_t res_i;
 	if (xfer_busy) return; // USB is busy
 	switch(xfer_dir) {
 		case READ:
-			ASSERT(readVolumeBlock(xfer_addr++, blockbuf));
+			res_b = readVolumeBlock(xfer_addr++, blockbuf);
+			ASSERT(res_b);
 			xfer_busy = true;
-			ASSERT(ERR_NONE == mscdf_xfer_blocks(true, blockbuf, 1));
+			res_i = mscdf_xfer_blocks(true, blockbuf, 1);
+			ASSERT(res_i == ERR_NONE);
 			if (--num_blocks == 0) {
 				// we're done (once we're no longer busy).
 				xfer_dir = IDLE;
@@ -194,18 +199,20 @@ void disk_task(void)
 			// XXX what the hell is this?!?!?!
 			//delay_us(50);
 				
-			ASSERT(writeVolumeBlock(xfer_addr++, blockbuf));
+			res_b = writeVolumeBlock(xfer_addr++, blockbuf);
+			ASSERT(res_b);
 			if (--num_blocks > 0) {
 				// Fetch the next block in the background
 				xfer_busy = true;
-				ASSERT(ERR_NONE == mscdf_xfer_blocks(false, blockbuf, 1));
+				res_i = mscdf_xfer_blocks(false, blockbuf, 1);
+				ASSERT(res_i == ERR_NONE);
 			} else {
 				// This special call tells the MSC system that the write
 				// is committed and the ACK can be sent to the host.
 				xfer_busy = true;
-				ASSERT(ERR_NONE == mscdf_xfer_blocks(false, blockbuf, 0));
+				res_i = mscdf_xfer_blocks(false, blockbuf, 0);
+				ASSERT(res_i == ERR_NONE);
 				xfer_dir = IDLE;
-				//xfer_busy = false;
 			}
 			break;
 		case IDLE:
