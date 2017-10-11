@@ -180,6 +180,11 @@ void disk_task(void)
 {
 	bool res_b;
 	int32_t res_i;
+	if (!mscdf_is_enabled()) {
+		xfer_dir = IDLE;
+		xfer_busy = false;
+		return;
+	}
 	if (xfer_busy) return; // USB is busy
 	switch(xfer_dir) {
 		case READ:
@@ -194,11 +199,7 @@ void disk_task(void)
 			}
 			break;
 		case WRITE:
-			// We previously did a transfer into blockbuf
-			
-			// XXX what the hell is this?!?!?!
-			//delay_us(50);
-				
+			// We previously did a transfer into blockbuf			
 			res_b = writeVolumeBlock(xfer_addr++, blockbuf);
 			ASSERT(res_b);
 			if (--num_blocks > 0) {
@@ -276,7 +277,7 @@ void usbd_msc_init(void)
 void usb_init(void)
 {	
 	xfer_busy = false;
-	num_blocks = -1;
+	xfer_dir = IDLE;
 	vol_state = NOT_READY;
 	
 	usbd_msc_init();
