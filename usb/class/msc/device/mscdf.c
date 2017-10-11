@@ -311,7 +311,7 @@ static bool mscdf_cb_ep_bulk_in(const uint8_t ep, const enum usb_xfer_code rc, c
 	}
 }
 
-static uint8_t ms6_buf[4];
+static const uint8_t ms6_buf[] = {0,0,0,0};
 
 /**
  * \brief Callback invoked when bulk OUT data received
@@ -348,15 +348,12 @@ static bool mscdf_cb_ep_bulk_out(const uint8_t ep, const enum usb_xfer_code rc, 
 				_mscdf_funcd.xfer_stage = MSCDF_DATA_STAGE;
 				pcsw->bCSWStatus        = USB_CSW_STATUS_PASS;
 				pcsw->dCSWDataResidue   = 0;
-				return usbdc_xfer(_mscdf_funcd.func_ep_in, pbuf, 36, false);
-
+				return ERR_NONE == usbdc_xfer(_mscdf_funcd.func_ep_in, pbuf, 36, false);
 			case SPC_MODE_SENSE6:
-				memset(ms6_buf, 0, sizeof(ms6_buf));
 				_mscdf_funcd.xfer_stage = MSCDF_DATA_STAGE;
 				pcsw->bCSWStatus = USB_CSW_STATUS_PASS;
-				pcsw->dCSWDataResidue = 0;
-				return usbdc_xfer(_mscdf_funcd.func_ep_in, ms6_buf, sizeof(ms6_buf), false);
-				
+				pcsw->dCSWDataResidue = pcbw->dCBWDataTransferLength - sizeof(ms6_buf);
+				return ERR_NONE == usbdc_xfer(_mscdf_funcd.func_ep_in, (uint8_t*)ms6_buf, sizeof(ms6_buf), true);
 			case SBC_READ_CAPACITY10:
 				if (NULL != mscdf_get_disk_capacity) {
 					pbuf = mscdf_get_disk_capacity(pcbw->bCBWLUN);
@@ -367,7 +364,7 @@ static bool mscdf_cb_ep_bulk_out(const uint8_t ep, const enum usb_xfer_code rc, 
 					    = (uint32_t)(pbuf[4] << 24) + (uint32_t)(pbuf[5] << 16) + (uint32_t)(pbuf[6] << 8) + pbuf[7];
 					pcsw->bCSWStatus      = USB_CSW_STATUS_PASS;
 					pcsw->dCSWDataResidue = 0;
-					return usbdc_xfer(_mscdf_funcd.func_ep_in, pbuf, 8, false);
+					return ERR_NONE == usbdc_xfer(_mscdf_funcd.func_ep_in, pbuf, 8, false);
 				} else {
 					pcsw->bCSWStatus = USB_CSW_STATUS_FAIL;
 					mscdf_request_sense(ERR_NOT_FOUND);
@@ -380,10 +377,9 @@ static bool mscdf_cb_ep_bulk_out(const uint8_t ep, const enum usb_xfer_code rc, 
 				return mscdf_read_write(count);
 
 			case SPC_PREVENT_ALLOW_MEDIUM_REMOVAL:
-				if (true || 0x00 == pcbw->CDB[4]) {
-					// NO! We can't prevent yanking of cards
-					pcsw->bCSWStatus = USB_CSW_STATUS_FAIL;
-					mscdf_request_sense(ERR_UNSUPPORTED_OP);
+				if (0x00 == pcbw->CDB[4]) {
+					// UNlocking is ok, but locking will fall through to unsupported op below
+					pcsw->bCSWStatus = USB_CSW_STATUS_PASS;
 					pcsw->dCSWDataResidue = 0;
 					return mscdf_send_csw();
 				}
