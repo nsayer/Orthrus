@@ -49,12 +49,12 @@ bool prepVolume(void) {
 	if (memcmp(blockbuf, MAGIC, strlen(MAGIC))) return false; // Wrong magic
 	cardswap = blockbuf[96] != 0; // we're swapping if A isn't A
 	memcpy(volid, blockbuf + 16, sizeof(volid));
-	memcpy(cardswap?keyblock[1]:keyblock[0], blockbuf + 48, sizeof(volid));
+	memcpy(cardswap?keyblock[1]:keyblock[0], blockbuf + 48, sizeof(keyblock[0]));
 	memcpy(cardswap?nonceB:nonceA, blockbuf + 80, sizeof(nonceA));
 	
 	if (!readPhysicalBlock(1, 0, blockbuf)) return false; // card B
 	if (memcmp(blockbuf, MAGIC, strlen(MAGIC))) return false; // Wrong magic
-	if (memcmp(blockbuf + 16, volid, sizeof(volid))) return false; // Wrong vol ID
+	if (memcmp(blockbuf + 16, volid, sizeof(keyblock[0]))) return false; // Wrong vol ID
 	if (!((blockbuf[96] != 0) ^ cardswap)) return false; // Must be one A, one B.
 
 	memcpy(cardswap?keyblock[0]:keyblock[1], blockbuf + 48, sizeof(volid));
