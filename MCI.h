@@ -34,4 +34,4 @@ bool shutdown_cards();
 // slot "A" is false, slot "B" is true. buf points to a SECTOR_SIZE length buffer.
 // blocknum is the block number on that card - not the volume block
 bool readPhysicalBlock(bool card, uint32_t blocknum, uint8_t *buf);
-bool writePhysicalBlock(bool card, uint32_t blocknum, volatile uint8_t *buf);
+bool writePhysicalBlock(bool card, uint32_t blocknum, uint8_t *buf);

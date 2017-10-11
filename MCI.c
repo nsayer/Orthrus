@@ -163,7 +163,7 @@ err:
 	return false;
 }
 
-bool writePhysicalBlock(bool card, uint32_t blocknum, volatile uint8_t *buf) {
+bool writePhysicalBlock(bool card, uint32_t blocknum, uint8_t *buf) {
 	gpio_set_pin_level(AB_SELECT, card);
 
 	if (!mci_sync_send_cmd(&MCI_0, 7 | MCI_RESP_PRESENT | MCI_RESP_BUSY | MCI_RESP_CRC, rca[card] << 16)) goto err;

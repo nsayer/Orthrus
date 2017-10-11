@@ -50,6 +50,6 @@ bool initVolume(void);
 
 // These methods are the volume I/O methods. They are synchronous.
 // Returns false on error.
-bool readVolumeBlock(uint32_t blocknum, volatile uint8_t *buf);
+bool readVolumeBlock(uint32_t blocknum, uint8_t *buf);
 	
-bool writeVolumeBlock(uint32_t blocknum, volatile uint8_t *buf);
+bool writeVolumeBlock(uint32_t blocknum, uint8_t *buf);

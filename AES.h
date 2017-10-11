@@ -34,7 +34,7 @@ void clearKeys(void);
 void init_xex(uint8_t *nonce, size_t nonce_len, enum aes_action mode_in);
 
 // Call this with BLOCKSIZE bytes at a time.
-void process_xex_block(volatile uint8_t *data);
+void process_xex_block(uint8_t *data);
 
 // Perform an AES CMAC on the given buffer (call setKey() first).
 void CMAC(uint8_t *buf, size_t buf_length, uint8_t *sigbuf);
