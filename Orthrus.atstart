@@ -269,6 +269,24 @@ drivers:
         configuration:
           usb_clock_source: USB High Speed Clock (USB_480M)
           usb_fsls_clock_source: USB Clock Controller (USB_48M)
+  WDT_0:
+    user_label: WDT_0
+    definition: Atmel:SAMS70_Drivers:0.0.1::ATSAMS70N19A-AN::WDT::driver_config_definition::WDT::HAL:Driver:WDT
+    functionality: WDT
+    api: HAL:Driver:WDT
+    configuration:
+      wdt_advanced: true
+      wdt_counter_value: 256
+      wdt_debug_halt_enable: true
+      wdt_delta_value: 256
+      wdt_disable: false
+      wdt_fault_interrupt_enable: false
+      wdt_fault_reset_enable: true
+      wdt_idle_halt_enable: false
+    optional_signals: []
+    variant: null
+    clocks:
+      domain_group: null
   XDMAC:
     user_label: XDMAC
     definition: Atmel:SAMS70_Drivers:0.0.1::ATSAMS70N19A-AN::XDMAC::driver_config_definition::DMAC::HAL:HPL:DMAC

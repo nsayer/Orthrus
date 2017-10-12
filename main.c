@@ -85,8 +85,12 @@ int main(void)
 	state = NO_CARDS;
 	button_state = UP;
 	set_state(NOT_READY);
-	
+
+	delay_ms(25); // Can't feed the watchdoog too soon after enabling it.
+
 	while (1) {
+		// We're alive as long as we keep coming through the main loop.
+		wdt_feed(&WDT_0);
 		
 		bool cards_in = !gpio_get_pin_level(CARD_DETECT_A) && !gpio_get_pin_level(CARD_DETECT_B);
 		if (cards_in) {

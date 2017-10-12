@@ -65,6 +65,9 @@ static bool do_card_init(bool card) {
 	uint32_t timeout_start = millis;
 	volatile bool ready = false;
 	do {
+		// Since this can take a while...
+		wdt_feed(&WDT_0);
+
 		if (!mci_sync_send_cmd(&MCI_0, 55 | MCI_RESP_PRESENT | MCI_RESP_CRC, 0)) goto error;
 		// 0x503... high capacity, max performance and 3.3 volts
 		ready = mci_sync_send_cmd(&MCI_0, 41 | MCI_RESP_PRESENT, 0x50300000UL);
