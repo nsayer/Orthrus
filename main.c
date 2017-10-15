@@ -39,6 +39,8 @@ static uint32_t button_start;
 // 128 bit unique ID
 uint8_t unique_id[16];
 
+uint8_t usb_serial_string[32]; // 15 chars from unique ID, plus length & type.
+
 // Millisecond counter - used for dealing with the button
 volatile uint32_t millis;
 
@@ -46,11 +48,22 @@ static void milli_timer_cb(const struct timer_task *const timer_task) {
 	millis++;
 }
 
+__attribute__((noinline)) __attribute__((section(".itcm"))) static void fetch_unique_id() {
+
+	memset(unique_id, 0, sizeof(unique_id));
+	EFC->EEFC_FCR = (EEFC_FCR_FKEY_PASSWD | EEFC_FCR_FCMD_STUI);
+	while ((EFC->EEFC_FSR & EEFC_FSR_FRDY) == EEFC_FSR_FRDY); // Oddly, you have to wait for FRDY to *clear*
+	memcpy(unique_id, (void*)0x00400000, sizeof(unique_id));
+	EFC->EEFC_FCR = (EEFC_FCR_FKEY_PASSWD | EEFC_FCR_FCMD_SPUI);
+	while ((EFC->EEFC_FSR & EEFC_FSR_FRDY) != EEFC_FSR_FRDY);
+
+}
+
 int main(void)
 {
 
 	SCB_EnableICache();
-	//SCB_EnableDCache(); // NO... this screws the pooch.
+	//SCB_EnableDCache(); //No... we need to sprinkle cache invalidations to do this.
 
 // Start doesn't do this for you, it seems.
 #if (CONF_XOSC20M_SELECTOR == 16000000)
@@ -58,19 +71,16 @@ int main(void)
 	UTMI->UTMI_CKTRIM |= UTMI_CKTRIM_FREQ(UTMI_CKTRIM_FREQ_XTAL16);
 #endif
 
+	fetch_unique_id();
+	memset(usb_serial_string, 0, sizeof(usb_serial_string)); // clear it out
+	usb_serial_string[0] = sizeof(usb_serial_string); // length
+	usb_serial_string[1] = USB_DT_STRING; // descriptor type is string
+	for(int i = 0; i < 15; i++)
+		usb_serial_string[(i + 1) * 2] = unique_id[i + 1];
+	
+	
 	/* Initializes MCU, drivers and middleware */
 	atmel_start_init();
-
-/*
-	// This doesn't work - we're executing code where this paging happens.
-	// fetch the unique ID
-	memset(unique_id, 0, sizeof(unique_id));
-	EFC->EEFC_FCR = (EEFC_FCR_FKEY_PASSWD | EEFC_FCR_FCMD_STUI);
-	while ((EFC->EEFC_FSR & EEFC_FSR_FRDY) != EEFC_FSR_FRDY);
-	memcpy(unique_id, (void*)0x00400000, sizeof(unique_id));
-	EFC->EEFC_FCR = (EEFC_FCR_FKEY_PASSWD | EEFC_FCR_FCMD_SPUI);
-	while ((EFC->EEFC_FSR & EEFC_FSR_FRDY) != EEFC_FSR_FRDY);
-*/
 
 	aes_sync_enable(&CRYPTOGRAPHY_0);
 
@@ -85,9 +95,9 @@ int main(void)
 	state = NO_CARDS;
 	button_state = UP;
 	set_state(NOT_READY);
-
+	
 	delay_ms(25); // Can't feed the watchdoog too soon after enabling it.
-
+	
 	while (1) {
 		// We're alive as long as we keep coming through the main loop.
 		wdt_feed(&WDT_0);
