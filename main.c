@@ -160,6 +160,10 @@ error:
 int main(void)
 {
 
+	hri_supc_write_SMMR_SMTH_bf(SUPC, 0xc); // 3.04 volts
+	hri_supc_set_SMMR_SMRSTEN_bit(SUPC); // reboot on brownout
+	hri_supc_write_SMMR_SMSMPL_bf(SUPC, SUPC_SMMR_SMSMPL_CSM_Val); // continuous monitoring
+
 	SCB_EnableICache();
 	//SCB_EnableDCache(); //No... we need to sprinkle cache invalidations to do this.
 
