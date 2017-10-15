@@ -54,10 +54,10 @@ bool prepVolume(void) {
 	
 	if (!readPhysicalBlock(1, 0, blockbuf)) return false; // card B
 	if (memcmp(blockbuf, MAGIC, strlen(MAGIC))) return false; // Wrong magic
-	if (memcmp(blockbuf + 16, volid, sizeof(keyblock[0]))) return false; // Wrong vol ID
+	if (memcmp(blockbuf + 16, volid, sizeof(volid))) return false; // Wrong vol ID
 	if (!((blockbuf[96] != 0) ^ cardswap)) return false; // Must be one A, one B.
 
-	memcpy(cardswap?keyblock[0]:keyblock[1], blockbuf + 48, sizeof(volid));
+	memcpy(cardswap?keyblock[0]:keyblock[1], blockbuf + 48, sizeof(keyblock[0]));
 	memcpy(cardswap?nonceA:nonceB, blockbuf + 80, sizeof(nonceA));
 	memset(blockbuf, 0, 16); // save RAM - use the block buf as temp
 	setKey(blockbuf); // all zero key.
@@ -107,7 +107,7 @@ bool initVolume(void) {
 
 // return false for *PHYSICAL* card A or true for B
 // During the data transfer, we call process_xex_block() on each BLOCKSIZE bytes as we go.
-static bool setupBlockCrypto(uint32_t blocknum, enum aes_action mode) {
+__attribute__((noinline)) __attribute__((section(".itcm"))) static bool setupBlockCrypto(uint32_t blocknum, enum aes_action mode) {
 	uint8_t cardA = (blocknum & 0x1) == 0;
 
 	uint8_t *nonce = cardA?nonceB:nonceA;
@@ -120,7 +120,7 @@ static bool setupBlockCrypto(uint32_t blocknum, enum aes_action mode) {
 	return !(cardA ^ cardswap);
 }
 
-bool readVolumeBlock(uint32_t blocknum, uint8_t *buf) {
+__attribute__((noinline)) __attribute__((section(".itcm"))) bool readVolumeBlock(uint32_t blocknum, uint8_t *buf) {
 	gpio_set_pin_level(LED_ACT, true);
 	bool card = setupBlockCrypto(blocknum, AES_DECRYPT);
 	uint32_t phys_blocknum = (blocknum >> 1) + 1;
@@ -136,7 +136,7 @@ bool readVolumeBlock(uint32_t blocknum, uint8_t *buf) {
 	return true;
 }
 	
-bool writeVolumeBlock(uint32_t blocknum, uint8_t *buf) {
+__attribute__((noinline)) __attribute__((section(".itcm"))) bool writeVolumeBlock(uint32_t blocknum, uint8_t *buf) {
 	gpio_set_pin_level(LED_ACT, true);
 	bool card = setupBlockCrypto(blocknum, AES_ENCRYPT);
 	uint32_t phys_blocknum = (blocknum >> 1) + 1;

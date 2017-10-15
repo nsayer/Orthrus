@@ -36,7 +36,7 @@ volatile static uint32_t xfer_addr;
 volatile static uint32_t num_blocks;
 volatile static bool xfer_busy;
 
-volatile static uint8_t blockbuf[SECTOR_SIZE];
+volatile static uint8_t __attribute__((section(".dtcm"))) blockbuf[SECTOR_SIZE];
 
 static uint8_t single_desc_bytes[] = {
     /* Device descriptors and Configuration descriptors list. */
@@ -176,7 +176,7 @@ static int32_t msc_xfer_done(uint8_t lun)
 /**
  * \brief Disk loop
  */
-void disk_task(void)
+__attribute__((noinline)) __attribute__((section(".itcm"))) void disk_task(void)
 {
 	bool res_b;
 	int32_t res_i;
@@ -199,7 +199,7 @@ void disk_task(void)
 			}
 			break;
 		case WRITE:
-			// We previously did a transfer into blockbuf			
+			// We previously did a transfer into blockbuf
 			res_b = writeVolumeBlock(xfer_addr++, blockbuf);
 			ASSERT(res_b);
 			if (--num_blocks > 0) {

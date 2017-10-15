@@ -59,45 +59,7 @@ __attribute__((noinline)) __attribute__((section(".itcm"))) static void fetch_un
 
 }
 
-int main(void)
-{
-
-	SCB_EnableICache();
-	//SCB_EnableDCache(); //No... we need to sprinkle cache invalidations to do this.
-
-// Start doesn't do this for you, it seems.
-#if (CONF_XOSC20M_SELECTOR == 16000000)
-	UTMI->UTMI_CKTRIM &= ~UTMI_CKTRIM_FREQ_Msk;
-	UTMI->UTMI_CKTRIM |= UTMI_CKTRIM_FREQ(UTMI_CKTRIM_FREQ_XTAL16);
-#endif
-
-	fetch_unique_id();
-	memset(usb_serial_string, 0, sizeof(usb_serial_string)); // clear it out
-	usb_serial_string[0] = sizeof(usb_serial_string); // length
-	usb_serial_string[1] = USB_DT_STRING; // descriptor type is string
-	for(int i = 0; i < 15; i++)
-		usb_serial_string[(i + 1) * 2] = unique_id[i + 1];
-	
-	
-	/* Initializes MCU, drivers and middleware */
-	atmel_start_init();
-
-	aes_sync_enable(&CRYPTOGRAPHY_0);
-
-	rand_sync_enable(&RAND_0);
-	
-	timer_start(&TIMER_0);
-	milli_task.cb = milli_timer_cb;
-	milli_task.interval = 1;
-	milli_task.mode = TIMER_TASK_REPEAT;
-	timer_add_task(&TIMER_0, &milli_task);
-	
-	state = NO_CARDS;
-	button_state = UP;
-	set_state(NOT_READY);
-	
-	delay_ms(25); // Can't feed the watchdoog too soon after enabling it.
-	
+__attribute__((noinline)) __attribute__((section(".itcm"))) static void do_main_loop(void) {
 	while (1) {
 		// We're alive as long as we keep coming through the main loop.
 		wdt_feed(&WDT_0);
@@ -193,4 +155,45 @@ error:
 		}
 		disk_task();
 	}
+}
+
+int main(void)
+{
+
+	SCB_EnableICache();
+	//SCB_EnableDCache(); //No... we need to sprinkle cache invalidations to do this.
+
+	// Start doesn't do this for you, it seems.
+	#if (CONF_XOSC20M_SELECTOR == 16000000)
+	UTMI->UTMI_CKTRIM &= ~UTMI_CKTRIM_FREQ_Msk;
+	UTMI->UTMI_CKTRIM |= UTMI_CKTRIM_FREQ(UTMI_CKTRIM_FREQ_XTAL16);
+	#endif
+
+	fetch_unique_id();
+	memset(usb_serial_string, 0, sizeof(usb_serial_string)); // clear it out
+	usb_serial_string[0] = sizeof(usb_serial_string); // length
+	usb_serial_string[1] = USB_DT_STRING; // descriptor type is string
+	for(int i = 0; i < 15; i++)
+	usb_serial_string[(i + 1) * 2] = unique_id[i + 1];
+	
+	
+	/* Initializes MCU, drivers and middleware */
+	atmel_start_init();
+
+	aes_sync_enable(&CRYPTOGRAPHY_0);
+
+	rand_sync_enable(&RAND_0);
+	
+	timer_start(&TIMER_0);
+	milli_task.cb = milli_timer_cb;
+	milli_task.interval = 1;
+	milli_task.mode = TIMER_TASK_REPEAT;
+	timer_add_task(&TIMER_0, &milli_task);
+	
+	state = NO_CARDS;
+	button_state = UP;
+	set_state(NOT_READY);
+	
+	delay_ms(25); // Can't feed the watchdoog too soon after enabling it.
+	do_main_loop();
 }

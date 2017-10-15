@@ -34,9 +34,9 @@ extern uint32_t _e_itcm;
 extern uint32_t _sfixed;
 extern uint32_t _efixed;
 extern uint32_t _etext;
-extern uint32_t _rtext;
-extern uint32_t _srelocate;
-extern uint32_t _erelocate;
+extern uint32_t _s_data_from;
+extern uint32_t _s_data;
+extern uint32_t _e_data;
 extern uint32_t _szero;
 extern uint32_t _ezero;
 extern uint32_t _sstack;
@@ -213,8 +213,8 @@ const DeviceVectors exception_table = {
 __attribute__((optimize("O0"))) void Reset_Handler(void)
 {
 #if 1
-	volatile static uint32_t ulStatus_bits = 0xdeadbeef;
-	volatile static uint32_t ulGPNVM_bits = 0xa5a5a5a5;
+	static uint32_t ulStatus_bits;
+	static uint32_t ulGPNVM_bits;
 	
 	EFC->EEFC_FCR = (EEFC_FCR_FKEY_PASSWD | EEFC_FCR_FCMD_GGPB);
 	
@@ -255,9 +255,9 @@ __attribute__((optimize("O0"))) void Reset_Handler(void)
 			*pDest++ = *pSrc++;
 		}
 			
-		pSrc = (uint32_t*)&_rtext;
-		pDest = (uint32_t*)&_srelocate;
-		pDestEnd = (uint32_t*)&_erelocate;
+		pSrc = (uint32_t*)&_s_data_from;
+		pDest = (uint32_t*)&_s_data;
+		pDestEnd = (uint32_t*)&_e_data;
 		for (; pDest < pDestEnd;) {
 			*pDest++ = *pSrc++;
 		}

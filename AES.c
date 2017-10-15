@@ -27,8 +27,8 @@
 // perform a multiply-by-two over GF(128).
 #define RB (0x87)
 
-uint8_t tweak[BLOCKSIZE];
-enum aes_action mode;
+uint8_t __attribute__((section(".dtcm"))) tweak[BLOCKSIZE];
+enum __attribute__((section(".dtcm"))) aes_action mode;
 
 void setKey(uint8_t *key) {
 	aes_sync_set_encrypt_key(&CRYPTOGRAPHY_0, key, AES_KEY_128);
@@ -40,7 +40,7 @@ void clearKeys(void) {
 	setKey(blankKey);
 }
 
-void init_xex(uint8_t *nonce, size_t nonce_len, enum aes_action action) {
+__attribute__((noinline)) __attribute__((section(".itcm"))) void init_xex(uint8_t *nonce, size_t nonce_len, enum aes_action action) {
 	mode = action;
 	memset(tweak, 0, sizeof(tweak));
 	memcpy(tweak, nonce, MIN(nonce_len, sizeof(tweak)));
@@ -55,7 +55,7 @@ void init_xex(uint8_t *nonce, size_t nonce_len, enum aes_action action) {
 // words, it multiplies by 2 within GF(128).
 //
 // If you understand that, then you're better at this than I am.
-static void galois_mult(uint8_t *block, size_t block_len) {
+__attribute__((noinline)) __attribute__((section(".itcm"))) static void galois_mult(uint8_t *block, size_t block_len) {
 	uint8_t carry = 0;
 	for(int i = block_len - 1; i >= 0; i--) {
 		uint8_t next_carry = (block[i] & 0x80) != 0;
@@ -69,7 +69,7 @@ static void galois_mult(uint8_t *block, size_t block_len) {
 }
 
 // Process a BLOCKSIZE byte block of a disk block. This does crypting in-place
-void process_xex_block(uint8_t *data) {
+__attribute__((noinline)) __attribute__((section(".itcm"))) void process_xex_block(uint8_t *data) {
 	// XOR the data with the tweak
 	for(int i = 0; i < BLOCKSIZE; i++)
 		data[i] ^= tweak[i];

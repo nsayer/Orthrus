@@ -129,14 +129,15 @@ SECTIONS
     _etext = .;
 	_rtext = . + SIZEOF(.itcm);
 
-    .relocate : AT (_etext + SIZEOF(.itcm))
+    .data : AT (_etext + SIZEOF(.itcm))
     {
         . = ALIGN(4);
-        _srelocate = .;
+        _s_data = .;
+		_s_data_from = LOADADDR(.data);
         *(.ramfunc .ramfunc.*);
         *(.data .data.*);
         . = ALIGN(4);
-        _erelocate = .;
+		_e_data = .;
     } > ram
 
     /* .bss section which is used for uninitialized data */
@@ -150,7 +151,16 @@ SECTIONS
         . = ALIGN(4);
         _ebss = . ;
         _ezero = .;
-    } > dtcm
+    } > ram
+
+	.dtcm (NOLOAD) :
+	{
+		. = ALIGN(4);
+		_sdtcm = . ;
+		*(.dtcm .dtcm.*)
+		. = ALIGN(4);
+		_edtcm = . ;
+	} > dtcm
 
     /* heap section */
     .heap (NOLOAD):

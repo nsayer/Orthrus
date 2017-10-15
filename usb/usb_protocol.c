@@ -123,7 +123,7 @@ uint8_t *usb_find_cfg_desc(uint8_t *desc, uint8_t *eof, uint8_t cfg_value)
 	return NULL;
 }
 
-extern uint8_t *usb_serial_string;
+extern uint8_t usb_serial_string[];
 
 uint8_t *usb_find_str_desc(uint8_t *desc, uint8_t *eof, uint8_t str_index)
 {
@@ -132,7 +132,7 @@ uint8_t *usb_find_str_desc(uint8_t *desc, uint8_t *eof, uint8_t str_index)
 	_param_error_check(desc && eof && (desc < eof));
 
 	if (str_index == 3) { // magic value for the serial number string
-		return &usb_serial_string;
+		return usb_serial_string;
 	}
 	
 	for (i = 0; desc < eof;) {
