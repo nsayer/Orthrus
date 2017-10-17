@@ -36,6 +36,7 @@ volatile static uint32_t xfer_addr;
 volatile static uint32_t num_blocks;
 volatile static bool xfer_busy;
 
+COMPILER_ALIGNED(4)
 volatile static uint8_t __attribute__((section(".dtcm"))) blockbuf[SECTOR_SIZE];
 
 static uint8_t single_desc_bytes[] = {
