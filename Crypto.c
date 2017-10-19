@@ -21,7 +21,7 @@
 #include <AES.h>
 #include <MCI.h>
 
-static const char *MAGIC = "OrthrusVolumeV01";
+static const char *MAGIC = "OrthrusVolumeV02";
 
 static uint8_t nonceA[BLOCKSIZE], nonceB[BLOCKSIZE];
 
@@ -30,11 +30,11 @@ static uint8_t cardswap;
 /*
  * The keyblock on each card looks like this:
  * 00-0F: magic value
- * 10-2F: volume ID
- * 30-4F: key block
- * 50-5F: nonce for the *other* card (only 50-5b actually used)
- * 60: flag - 0 for "A", 1 for "B"
- * 61-1FF: unused
+ * 10-4F: volume ID
+ * 50-6F: key block
+ * 70-7F: nonce for the *other* card (only 50-5b actually used)
+ * 80: flag - 0 for "A", 1 for "B"
+ * 81-1FF: unused
  *
  * To make the volume key, you concatenate the key blocks
  * from card A and B together (A first) and perform an AES CMAC over
@@ -42,29 +42,50 @@ static uint8_t cardswap;
  * for an AES CMAC over the volume ID. The result of that is
  * the volume key.
  */
+#define MAGIC_POS (0)
+#define MAGIC_LENGTH (0x10)
+#define VOL_ID_POS (0x10)
+#define VOL_ID_LENGTH (0x40)
+#define KEY_BLOCK_POS (0x50)
+#define KEY_BLOCK_LENGTH (0x20)
+#define NONCE_POS (0x70)
+#define NONCE_LENGTH (BLOCKSIZE)
+#define FLAG_POS (0x80)
+// 256 bytes
+#define KEYSIZE (32)
+
 bool prepVolume(void) {
-	uint8_t volid[32], keyblock[2][32];
+	uint8_t volid[VOL_ID_LENGTH], keyblock[2][KEY_BLOCK_LENGTH];
 	uint8_t blockbuf[SECTOR_SIZE];
 	if (!readPhysicalBlock(0, 0, blockbuf)) return false; // card A
 	if (memcmp(blockbuf, MAGIC, strlen(MAGIC))) return false; // Wrong magic
-	cardswap = blockbuf[96] != 0; // we're swapping if A isn't A
-	memcpy(volid, blockbuf + 16, sizeof(volid));
-	memcpy(cardswap?keyblock[1]:keyblock[0], blockbuf + 48, sizeof(keyblock[0]));
-	memcpy(cardswap?nonceB:nonceA, blockbuf + 80, sizeof(nonceA));
+	cardswap = blockbuf[FLAG_POS] != 0; // we're swapping if A isn't A
+	memcpy(volid, blockbuf + VOL_ID_POS, sizeof(volid));
+	memcpy(cardswap?keyblock[1]:keyblock[0], blockbuf + KEY_BLOCK_POS, sizeof(keyblock[0]));
+	memcpy(cardswap?nonceB:nonceA, blockbuf + NONCE_POS, sizeof(nonceA));
 	
 	if (!readPhysicalBlock(1, 0, blockbuf)) return false; // card B
 	if (memcmp(blockbuf, MAGIC, strlen(MAGIC))) return false; // Wrong magic
-	if (memcmp(blockbuf + 16, volid, sizeof(volid))) return false; // Wrong vol ID
-	if (!((blockbuf[96] != 0) ^ cardswap)) return false; // Must be one A, one B.
+	if (memcmp(blockbuf + VOL_ID_POS, volid, sizeof(volid))) return false; // Wrong vol ID
+	if (!((blockbuf[FLAG_POS] != 0) ^ cardswap)) return false; // Must be one A, one B.
 
-	memcpy(cardswap?keyblock[0]:keyblock[1], blockbuf + 48, sizeof(keyblock[0]));
-	memcpy(cardswap?nonceA:nonceB, blockbuf + 80, sizeof(nonceA));
-	memset(blockbuf, 0, 16); // save RAM - use the block buf as temp
+	memcpy(cardswap?keyblock[0]:keyblock[1], blockbuf + KEY_BLOCK_POS, sizeof(keyblock[0]));
+	memcpy(cardswap?nonceA:nonceB, blockbuf + NONCE_POS, sizeof(nonceA));
+	memset(blockbuf, 0, KEYSIZE); // save RAM - use the block buf as temp
 	setKey(blockbuf); // all zero key.
-	CMAC((uint8_t*)keyblock, 64, blockbuf); // send in both key blocks, A first
-	setKey(blockbuf);
-	CMAC(volid, 32, blockbuf); // with the intermediate key, CMAC the volume ID
-	setKey(blockbuf); // And that's our volume key
+	
+	// shuffle the two key blocks
+	for(int i = 0; i < KEY_BLOCK_LENGTH; i++) {
+		blockbuf[2 * i] = keyblock[0][i];
+		blockbuf[2 * i + 1] = keyblock[1][i];
+	}
+	uint8_t key[KEYSIZE];
+	CMAC((uint8_t*)blockbuf, KEY_BLOCK_LENGTH, key); // first half
+	CMAC((uint8_t*)blockbuf + KEY_BLOCK_LENGTH, KEY_BLOCK_LENGTH, key + BLOCKSIZE); // second half
+	setKey(key);
+	CMAC(volid, VOL_ID_LENGTH / 2, key); // first half
+	CMAC(volid + VOL_ID_LENGTH / 2, VOL_ID_LENGTH / 2, key + BLOCKSIZE); // second half
+	setKey(key); // And that's our volume key
 	return true; // all set!
 }
 
@@ -90,15 +111,15 @@ bool initVolume(void) {
 	memcpy(blockbuf, MAGIC, strlen(MAGIC));
 
 	// Fill up the volume ID, the key block and the nonce with random
-	rand_sync_read_buf8(&RAND_0, blockbuf + 16, 32 + 32 + 16);
+	rand_sync_read_buf8(&RAND_0, blockbuf + VOL_ID_POS, VOL_ID_LENGTH + KEY_BLOCK_LENGTH + NONCE_LENGTH);
 	
-	blockbuf[96] = 0; // card A
+	blockbuf[FLAG_POS] = 0; // card A
     if (!writePhysicalBlock(false, 0, blockbuf)) return false;
 	
 	// Leave the volume ID alone, fill only the key and nonce with new random
-	rand_sync_read_buf8(&RAND_0, blockbuf + 48, 32 + 16);
+	rand_sync_read_buf8(&RAND_0, blockbuf + KEY_BLOCK_POS, KEY_BLOCK_LENGTH + NONCE_LENGTH);
 	
-	blockbuf[96] = 1; // card B
+	blockbuf[FLAG_POS] = 1; // card B
     if (!writePhysicalBlock(true, 0, blockbuf)) return false;
 
 	// as a side effect, perform a volume prep, which will set the key.

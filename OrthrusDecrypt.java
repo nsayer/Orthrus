@@ -46,7 +46,7 @@ import java.util.Arrays;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
 public class OrthrusDecrypt {
-	public static byte[] MAGIC = "OrthrusVolumeV01".getBytes();
+	public static byte[] MAGIC = "OrthrusVolumeV02".getBytes();
 
 	private static final byte RB = (byte)0x87;
 
@@ -86,10 +86,10 @@ public class OrthrusDecrypt {
 		/*
 		 * Each card's key block consists of:
 		 *   0x00-0x0f: The MAGIC constant
-		 *   0x10-0x2f: The volume ID (common to both cards)
-		 *   0x30-0x4f: The key data (different for each card)
-		 *   0x50-0x59: The nonce data (different for each card, used for the *opposite* card)
-		 *   0x5a:      The flag (0 for A, 1 for B)
+		 *   0x10-0x4f: The volume ID (common to both cards)
+		 *   0x50-0x6f: The key data (different for each card)
+		 *   0x70-0x7f: The nonce data (different for each card, used for the *opposite* card)
+		 *   0x80:      The flag (0 for A, 1 for B)
 		 */
 		if (!Arrays.equals(Arrays.copyOfRange(keyblock1, 0, MAGIC.length), MAGIC)) {
 			System.err.println("Card 1 is not an Orthrus volume.");
@@ -99,16 +99,16 @@ public class OrthrusDecrypt {
 			System.err.println("Card 2 is not an Orthrus volume.");
 			return;
 		}
-		byte[] volumeID = Arrays.copyOfRange(keyblock1, 16, 48);
-		if (!Arrays.equals(Arrays.copyOfRange(keyblock2, 16, 48), volumeID)) {
+		byte[] volumeID = Arrays.copyOfRange(keyblock1, 16, 80);
+		if (!Arrays.equals(Arrays.copyOfRange(keyblock2, 16, 80), volumeID)) {
 			System.err.println("Cards are not paired.");
 			return;
 		}
-		if (!((keyblock1[96] == 0) ^ (keyblock2[96] == 0))) {
+		if (!((keyblock1[128] == 0) ^ (keyblock2[128] == 0))) {
 			System.err.println("There needs to be one A and one B card.");
 			return;
 		}
-		if (keyblock1[96] != 0) {
+		if (keyblock1[128] != 0) {
 			// swap A and B
 			{
 				InputStream swap = stream1;
@@ -121,8 +121,8 @@ public class OrthrusDecrypt {
 				keyblock2 = swap;
 			}
 		}
-		byte[] keybytes1 = Arrays.copyOfRange(keyblock1, 48, 80);
-		byte[] keybytes2 = Arrays.copyOfRange(keyblock2, 48, 80);
+		byte[] keybytes1 = Arrays.copyOfRange(keyblock1, 80, 112);
+		byte[] keybytes2 = Arrays.copyOfRange(keyblock2, 80, 112);
 		System.err.println("Key block 1: " + hexString(keybytes1));
 		System.err.println("Key block 2: " + hexString(keybytes2));
 		System.err.println("Volume ID  : " + hexString(volumeID));
@@ -138,15 +138,31 @@ public class OrthrusDecrypt {
 		 * the block size. If it weren't, we'd have to get more
 		 * creative.
 		 */
+		byte[] keydata = new byte[64];
+		for(int i = 0; i < keybytes1.length; i++) {
+			keydata[2 * i] = keybytes1[i];
+			keydata[2 * i + 1] = keybytes2[i];
+		}
 		Mac mac = Mac.getInstance("AESCMAC");
-		mac.init(new SecretKeySpec(new byte[BLOCKSIZE], "AES")); // all zero key
-		mac.update(keybytes1);
-		mac.update(keybytes2);
-		byte[] intermediate = mac.doFinal();
+		mac.init(new SecretKeySpec(new byte[32], "AES")); // all zero key
+		mac.update(Arrays.copyOfRange(keydata, 0, keydata.length / 2));
+		byte[] intermediate1 = mac.doFinal();
+		mac.init(new SecretKeySpec(new byte[32], "AES")); // all zero key
+		mac.update(Arrays.copyOfRange(keydata, keydata.length / 2, keydata.length));
+		byte[] intermediate2 = mac.doFinal();
+		byte[] intermediate = new byte[intermediate1.length + intermediate2.length];
+		System.arraycopy(intermediate1, 0, intermediate, 0, intermediate1.length);
+		System.arraycopy(intermediate2, 0, intermediate, intermediate1.length, intermediate2.length);
 		mac = Mac.getInstance("AESCMAC");
 		mac.init(new SecretKeySpec(intermediate, "AES"));
-		mac.update(volumeID);
-		byte[] volumeKeyBytes = mac.doFinal();
+		mac.update(Arrays.copyOfRange(volumeID, 0, volumeID.length / 2));
+		intermediate1 = mac.doFinal();
+		mac.init(new SecretKeySpec(intermediate, "AES"));
+		mac.update(Arrays.copyOfRange(volumeID, volumeID.length / 2, volumeID.length));
+		intermediate2 = mac.doFinal();
+		byte[] volumeKeyBytes = new byte[intermediate1.length + intermediate2.length];
+		System.arraycopy(intermediate1, 0, volumeKeyBytes, 0, intermediate1.length);
+		System.arraycopy(intermediate2, 0, volumeKeyBytes, intermediate1.length, intermediate2.length);
 		System.err.println("Volume Key : " + hexString(volumeKeyBytes));
 		SecretKey volumeKey = new SecretKeySpec(volumeKeyBytes, "AES");
 
@@ -156,8 +172,8 @@ public class OrthrusDecrypt {
 		 * counter mode, but the 10 bytes used are the 10 bytes
 		 * stored on the opposite physical card for each logical block.
 		 */
-		byte[] nonce1 = Arrays.copyOfRange(keyblock1, 80, 96);
-		byte[] nonce2 = Arrays.copyOfRange(keyblock2, 80, 96);
+		byte[] nonce1 = Arrays.copyOfRange(keyblock1, 112, 128);
+		byte[] nonce2 = Arrays.copyOfRange(keyblock2, 112, 128);
 		System.err.println("Nonce A : " + hexString(nonce1));
 		System.err.println("Nonce B : " + hexString(nonce2));
 		Cipher tweakCipher = Cipher.getInstance("AES/ECB/NoPadding");

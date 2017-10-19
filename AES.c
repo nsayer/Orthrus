@@ -31,12 +31,12 @@ uint8_t __attribute__((section(".dtcm"))) tweak[BLOCKSIZE];
 enum __attribute__((section(".dtcm"))) aes_action mode;
 
 void setKey(uint8_t *key) {
-	aes_sync_set_encrypt_key(&CRYPTOGRAPHY_0, key, AES_KEY_128);
-	aes_sync_set_decrypt_key(&CRYPTOGRAPHY_0, key, AES_KEY_128);
+	aes_sync_set_encrypt_key(&CRYPTOGRAPHY_0, key, AES_KEY_256);
+	aes_sync_set_decrypt_key(&CRYPTOGRAPHY_0, key, AES_KEY_256);
 }
 
 void clearKeys(void) {
-	unsigned char blankKey[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+	unsigned char blankKey[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 	setKey(blankKey);
 }
 
