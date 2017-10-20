@@ -90,7 +90,7 @@ error:
 			if (state != NO_CARDS) {
 				// cards have just been removed. Turn everything off.
 				shutdown_cards();
-				clearKeys();
+				unmountVolume();
 				if (state == OK) {
 					set_state(NOT_READY);
 				}

@@ -34,6 +34,9 @@
  */
 bool prepVolume(void);
 
+// call this to clear the keys and nonce when a volume goes offline
+void unmountVolume(void);
+
 /*
  * This method initializes a volume by writing a newly created key block for
  * each card.

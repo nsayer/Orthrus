@@ -23,9 +23,9 @@
 
 static const char *MAGIC = "OrthrusVolumeV02";
 
-static uint8_t nonceA[BLOCKSIZE], nonceB[BLOCKSIZE];
+static uint8_t __attribute__((section(".dtcm"))) nonceA[BLOCKSIZE], nonceB[BLOCKSIZE];
 
-static uint8_t cardswap;
+static uint8_t __attribute__((section(".dtcm"))) cardswap;
 
 /*
  * The keyblock on each card looks like this:
@@ -36,11 +36,12 @@ static uint8_t cardswap;
  * 80: flag - 0 for "A", 1 for "B"
  * 81-1FF: unused
  *
- * To make the volume key, you concatenate the key blocks
+ * To make the volume key, you shuffle the key blocks
  * from card A and B together (A first) and perform an AES CMAC over
- * that with an all-zero key. You then use that result as the key
- * for an AES CMAC over the volume ID. The result of that is
- * the volume key.
+ * each half of the shuffled data with an all-zero key, concatenating
+ * the two CMAC outputs to form a 256 bit key. You then use that as the key
+ * for an AES CMAC over the two halves of the volume ID, again concatenating
+ * the results. The result of that is the volume key.
  */
 #define MAGIC_POS (0)
 #define MAGIC_LENGTH (0x10)
@@ -86,6 +87,13 @@ bool prepVolume(void) {
 	CMAC(volid, VOL_ID_LENGTH / 2, key); // first half
 	CMAC(volid + VOL_ID_LENGTH / 2, VOL_ID_LENGTH / 2, key + BLOCKSIZE); // second half
 	setKey(key); // And that's our volume key
+	
+	// Avoid potential information leaks - clear out all of our temporary space
+	memset(keyblock[0], 0, sizeof(keyblock[0]));
+	memset(keyblock[1], 0, sizeof(keyblock[1]));
+	memset(key, 0, sizeof(key));
+	memset(blockbuf, 0, sizeof(blockbuf));
+	memset(volid, 0, sizeof(volid));
 	return true; // all set!
 }
 
@@ -122,8 +130,17 @@ bool initVolume(void) {
 	blockbuf[FLAG_POS] = 1; // card B
     if (!writePhysicalBlock(true, 0, blockbuf)) return false;
 
+	// clear out our temporary space
+	memset(blockbuf, 0, sizeof(blockbuf));
+	
 	// as a side effect, perform a volume prep, which will set the key.
 	return prepVolume();
+}
+
+void unmountVolume(void) {
+	clearKeys();
+	memset(nonceA, 0, sizeof(nonceA));
+	memset(nonceB, 0, sizeof(nonceB));
 }
 
 // return false for *PHYSICAL* card A or true for B

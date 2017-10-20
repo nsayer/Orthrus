@@ -38,7 +38,7 @@ extern uint32_t millis; // from main.
 
 uint32_t volume_size;
 uint32_t card_size[2];
-uint16_t rca[2];
+uint16_t __attribute__((section(".dtcm"))) rca[2];
 
 // This initializes a single card. It'll be called twice, with the AB select line one way
 // then the other. This method assumes the cards have JUST been powered up.
