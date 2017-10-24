@@ -40,6 +40,7 @@ import java.nio.ByteBuffer;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
+import java.io.IOException;
 
 import java.math.BigInteger;
 
@@ -48,8 +49,16 @@ import java.util.Arrays;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
 public class OrthrusDecrypt {
-	public static class Keyblock {
-		public static byte[] MAGIC = "OrthrusVolumeV02".getBytes();
+	private static class Keyblock {
+		public static final byte[] MAGIC;
+		static {
+			try {
+				MAGIC = "OrthrusVolumeV02".getBytes("US-ASCII");
+			}
+			catch(IOException ex) {
+				throw new RuntimeException("This should never be possible.");
+			}
+		}
 		/*
 		 * The format of a volume key block is:
 		 * 0x00-0x10: magic
@@ -135,17 +144,19 @@ public class OrthrusDecrypt {
 				byte[] blockbuf = new byte[SECTORSIZE];
 				Keyblock keyblock1, keyblock2;
 				try {
-					stream1.read(blockbuf);
+					if (stream1.read(blockbuf) != blockbuf.length)
+						throw new IllegalArgumentException("Card A not at least one block long.");
 					keyblock1 = new Keyblock(blockbuf);
 				}
-				catch(Exception ex) {
+				catch(RuntimeException ex) {
 					throw new Exception("Caught exception reading key block from card A.", ex);
 				}
 				try {
-					stream2.read(blockbuf);
+					if (stream2.read(blockbuf) != blockbuf.length)
+						throw new IllegalArgumentException("Card B not at least one block long.");
 					keyblock2 = new Keyblock(blockbuf);
 				}
-				catch(Exception ex) {
+				catch(RuntimeException ex) {
 					throw new Exception("Caught exception reading key block from card B.", ex);
 				}
 				if (!Arrays.equals(keyblock1.getVolumeID(), keyblock2.getVolumeID()))
