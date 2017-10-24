@@ -120,19 +120,21 @@ bool initVolume(void) {
 
 	// Fill up the volume ID, the key block and the nonce with random
 	rand_sync_read_buf8(&RAND_0, blockbuf + VOL_ID_POS, VOL_ID_LENGTH + KEY_BLOCK_LENGTH + NONCE_LENGTH);
-	
+
 	blockbuf[FLAG_POS] = 0; // card A
-    if (!writePhysicalBlock(false, 0, blockbuf)) return false;
+
+	if (!writePhysicalBlock(false, 0, blockbuf)) return false;
 	
 	// Leave the volume ID alone, fill only the key and nonce with new random
 	rand_sync_read_buf8(&RAND_0, blockbuf + KEY_BLOCK_POS, KEY_BLOCK_LENGTH + NONCE_LENGTH);
 	
 	blockbuf[FLAG_POS] = 1; // card B
-    if (!writePhysicalBlock(true, 0, blockbuf)) return false;
+
+	if (!writePhysicalBlock(true, 0, blockbuf)) return false;
 
 	// clear out our temporary space
 	memset(blockbuf, 0, sizeof(blockbuf));
-	
+
 	// as a side effect, perform a volume prep, which will set the key.
 	return prepVolume();
 }
