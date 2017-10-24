@@ -149,23 +149,24 @@ public class OrthrusDecrypt {
 					throw new Exception("Caught exception reading key block from card B.", ex);
 				}
 
-				InputStream streamA = stream1, streamB = stream2;
-				if (!keyblock1.isCardA()) {
+				InputStream streamA, streamB;
+				Keyblock keyblockA, keyblockB;
+				if (keyblock1.isCardA()) {
+					keyblockA = keyblock1;
+					keyblockB = keyblock2;
+					streamA = stream1;
+					streamB = stream2;
+				} else {
 					// swap A and B
-					{
-						InputStream swap = streamA;
-						streamA = streamB;
-						streamB = swap;
-					}
-					{
-						Keyblock swap = keyblock1;
-						keyblock1 = keyblock2;
-						keyblock2 = swap;
-					}
+					keyblockA = keyblock2;
+					keyblockB = keyblock1;
+					streamA = stream2;
+					streamB = stream1;
 				}
-				System.err.println("Key block 1: " + hexString(keyblock1.getKeyData()));
-				System.err.println("Key block 2: " + hexString(keyblock2.getKeyData()));
-				System.err.println("Volume ID  : " + hexString(keyblock1.getVolumeID()));
+
+				System.err.println("Key block A: " + hexString(keyblockA.getKeyData()));
+				System.err.println("Key block B: " + hexString(keyblockB.getKeyData()));
+				System.err.println("Volume ID  : " + hexString(keyblockA.getVolumeID()));
 
 				/*
 				 * It's unfortunate that the block size and key size aren't the same.
@@ -176,9 +177,9 @@ public class OrthrusDecrypt {
 				 * concatenating the results to form the intermediate key.
 				 */
 				byte[] keydata = new byte[64];
-				for(int i = 0; i < keyblock1.getKeyData().length; i++) {
-					keydata[2 * i] = keyblock1.getKeyData()[i];
-					keydata[2 * i + 1] = keyblock2.getKeyData()[i];
+				for(int i = 0; i < keyblockA.getKeyData().length; i++) {
+					keydata[2 * i] = keyblockA.getKeyData()[i];
+					keydata[2 * i + 1] = keyblockB.getKeyData()[i];
 				}
 				// Build the intermediate key by CMACing the two halves of the shuffled keydata
 				// and concatenating the result
@@ -195,10 +196,10 @@ public class OrthrusDecrypt {
 				// concatenating the result to make the volume key.
 				mac = Mac.getInstance("AESCMAC");
 				mac.init(new SecretKeySpec(intermediate, "AES"));
-				mac.update(Arrays.copyOfRange(keyblock1.getVolumeID(), 0, keyblock1.getVolumeID().length / 2));
+				mac.update(Arrays.copyOfRange(keyblockA.getVolumeID(), 0, keyblockA.getVolumeID().length / 2));
 				intermediate1 = mac.doFinal();
 				mac.init(new SecretKeySpec(intermediate, "AES"));
-				mac.update(Arrays.copyOfRange(keyblock1.getVolumeID(), keyblock1.getVolumeID().length / 2, keyblock1.getVolumeID().length));
+				mac.update(Arrays.copyOfRange(keyblockA.getVolumeID(), keyblockA.getVolumeID().length / 2, keyblockA.getVolumeID().length));
 				intermediate2 = mac.doFinal();
 				byte[] volumeKeyBytes = concat(intermediate1, intermediate2);
 				SecretKey volumeKey = new SecretKeySpec(volumeKeyBytes, "AES");
@@ -209,8 +210,8 @@ public class OrthrusDecrypt {
 				 * XEX mode, but the bytes used are the nonce bytes
 				 * stored on the opposite physical card for each logical block.
 				 */
-				System.err.println("Nonce A : " + hexString(keyblock1.getNonce()));
-				System.err.println("Nonce B : " + hexString(keyblock2.getNonce()));
+				System.err.println("Nonce A : " + hexString(keyblockA.getNonce()));
+				System.err.println("Nonce B : " + hexString(keyblockB.getNonce()));
 				Cipher tweakCipher = Cipher.getInstance("AES/ECB/NoPadding");
 				tweakCipher.init(Cipher.ENCRYPT_MODE, volumeKey);
 				Cipher dataCipher = Cipher.getInstance("AES/ECB/NoPadding");
@@ -228,7 +229,7 @@ public class OrthrusDecrypt {
 		
 					// create the individual nonce for this block.
 					byte[] nonce = new byte[BLOCKSIZE];
-					System.arraycopy((cardA?keyblock2:keyblock1).getNonce(), 0, nonce, 0, keyblock1.getNonce().length); // pick the nonce from the other card
+					System.arraycopy((cardA?keyblockB:keyblockA).getNonce(), 0, nonce, 0, keyblockA.getNonce().length); // pick the nonce from the other card
 					// Overwrite the last 4 bytes with the logical block number.
 					nonce[nonce.length - 4] = (byte)(block >> 24);
 					nonce[nonce.length - 3] = (byte)(block >> 16);
