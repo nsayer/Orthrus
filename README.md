@@ -9,7 +9,7 @@ the files contained here on top to make a complete, buildable firmware image.
 
 You can load that image using SAM-BA by shorting the ERASE jumper, then using
 SAM-BA over USB to load the image into place and set the GPNVM bits to 0x103 (boot
-from flash, security bit on, and TCB config 2). That will lock the firmware in and
+from flash, security bit on, and TCM config 2). That will lock the firmware in and
 prevent debug access until and unless an ERASE is performed. You can also load the
 code in via SWD over the JTAG connector. Again, setting the security bit after flashing
 is recommended for production use.
