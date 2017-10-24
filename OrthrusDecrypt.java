@@ -59,7 +59,7 @@ public class OrthrusDecrypt {
 		 * 0x80: Card mark - 0 for A, 1 for B
 		 */
 		public Keyblock(byte[] diskblock) {
-			if (diskblock.length != 0x200)
+			if (diskblock.length != SECTORSIZE)
 				throw new IllegalArgumentException("Expect a whole disk block for the Keyblock.");
 			ByteBuffer buf = ByteBuffer.wrap(diskblock);
 			byte[] magic = new byte[MAGIC.length];
@@ -148,6 +148,8 @@ public class OrthrusDecrypt {
 				catch(Exception ex) {
 					throw new Exception("Caught exception reading key block from card B.", ex);
 				}
+				if (!Arrays.equals(keyblock1.getVolumeID(), keyblock2.getVolumeID()))
+					throw new IllegalArgumentException("Cards have different volume IDs.");
 
 				InputStream streamA, streamB;
 				Keyblock keyblockA, keyblockB;
