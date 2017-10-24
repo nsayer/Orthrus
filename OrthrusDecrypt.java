@@ -128,15 +128,16 @@ public class OrthrusDecrypt {
 		System.err.println("Volume ID  : " + hexString(volumeID));
 
 		/*
-		 * To make the volume key (the AES key for the entire disk),
-		 * we run AES CMAC with an all-zero key over the two blocks
-		 * of key data (A first, then B). We use the result as the
-		 * AES key for an AES CMAC over the volume ID. The result of
-		 * that is the volume key.
+		 * It's unfortunate that the block size and key size aren't the same.
+		 * This requires us to use two CMAC operations to make a new key.
+		 * We want to insure that the very first half-operation requires us to
+		 * have both key blocks, so we will shuffle them togther (A card first).
+		 * We perform a zero-key CMAC over the two halves of the shuffle-buffer
+		 * concatenating the results to form the intermediate key.
 		 *
-		 * It's a happy coincidence that our key size is the same as
-		 * the block size. If it weren't, we'd have to get more
-		 * creative.
+		 * With the intermediate key, we CMAC the two halves of the volume ID
+		 * (since it's common to both cards, the shuffle isn't required), again
+		 * concatenating the two results to form the volume key.
 		 */
 		byte[] keydata = new byte[64];
 		for(int i = 0; i < keybytes1.length; i++) {
@@ -167,10 +168,10 @@ public class OrthrusDecrypt {
 		SecretKey volumeKey = new SecretKeySpec(volumeKeyBytes, "AES");
 
 		/*
-		 * The two 10 byte nonce values are combined with the
-		 * logical block number to form a 14 byte nonce for
-		 * counter mode, but the 10 bytes used are the 10 bytes
-		 * stored on the opposite physical card for each logical block.
+		 * The two 12 byte nonce values are combined with the
+		 * logical block number to form a 16 byte nonce for
+		 * XEX mode, but the nonce bytes used are the ones
+		 * stored on the *opposite* physical card for each logical block.
 		 */
 		byte[] nonce1 = Arrays.copyOfRange(keyblock1, 112, 128);
 		byte[] nonce2 = Arrays.copyOfRange(keyblock2, 112, 128);
