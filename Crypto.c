@@ -52,7 +52,7 @@ static uint8_t __attribute__((section(".dtcm"))) cardswap;
 #define NONCE_POS (0x70)
 #define NONCE_LENGTH (BLOCKSIZE)
 #define FLAG_POS (0x80)
-// 256 bytes
+// 256 bits
 #define KEYSIZE (32)
 
 bool prepVolume(void) {
