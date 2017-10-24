@@ -65,40 +65,36 @@ __attribute__((noinline)) __attribute__((section(".itcm"))) static void do_main_
 		wdt_feed(&WDT_0);
 		
 		bool cards_in = !gpio_get_pin_level(CARD_DETECT_A) && !gpio_get_pin_level(CARD_DETECT_B);
-		if (cards_in) {
-			if (state == NO_CARDS) {
-				// cards have just been inserted. Get to work!
-				if (!init_cards()) {
-					state = ERROR;
-					goto error;
-				}
-				if (!prepVolume()) {
-					state = UNINITIALIZED;
-					goto error;
-				}							
-				state = OK;
-				gpio_set_pin_level(LED_RDY, true);
-				gpio_set_pin_level(LED_ERR, false);
-				set_state(READY);
-				continue;
-error:
-				gpio_set_pin_level(LED_ERR, true);
-				gpio_set_pin_level(LED_RDY, false);
-				continue;			
+		if (cards_in && state == NO_CARDS) {
+			// cards have just been inserted. Get to work!
+			if (!init_cards()) {
+				state = ERROR;
+				goto error;
 			}
-		} else {
-			if (state != NO_CARDS) {
-				// cards have just been removed. Turn everything off.
-				shutdown_cards();
-				unmountVolume();
-				if (state == OK) {
-					set_state(NOT_READY);
-				}
-				state = NO_CARDS;
-				gpio_set_pin_level(LED_ERR, false);
-				gpio_set_pin_level(LED_RDY, false);
-				continue;
-			}	
+			if (!prepVolume()) {
+				state = UNINITIALIZED;
+				goto error;
+			}							
+			state = OK;
+			gpio_set_pin_level(LED_RDY, true);
+			gpio_set_pin_level(LED_ERR, false);
+			set_state(READY);
+			continue;
+error:
+			gpio_set_pin_level(LED_ERR, true);
+			gpio_set_pin_level(LED_RDY, false);
+			continue;			
+		} else if (!cards_in && state != NO_CARDS) {
+			// cards have just been removed. Turn everything off.
+			shutdown_cards();
+			unmountVolume();
+			if (state == OK) {
+				set_state(NOT_READY);
+			}
+			state = NO_CARDS;
+			gpio_set_pin_level(LED_ERR, false);
+			gpio_set_pin_level(LED_RDY, false);
+			continue;	
 		}
 		
 		// Handle the button being held down.
@@ -128,11 +124,13 @@ error:
 		
 		if (button) {
 			switch(button_state) {
-				case UP:
+				case UP: // The button was *just* pushed.
 					if (state == UNINITIALIZED || state == OK) {
+						// Initializing the card is only possible in those two states
 						button_state = DOWN;
 						button_start = millis;
 					} else {
+						// Wrong state. Ignore the button.
 						button_state = IGNORING;
 					}
 					break;
@@ -143,6 +141,8 @@ error:
 			}
 		} else {
 			if (button_state != UP) {
+				// The button was released before the time elapsed.
+				// Return everything to status quo ante.
 				if (state == OK) {
 					gpio_set_pin_level(LED_RDY, true);
 					gpio_set_pin_level(LED_ERR, false);
@@ -160,34 +160,43 @@ error:
 int main(void)
 {
 
+	// Turn on supply voltage monitoring.
 	hri_supc_write_SMMR_SMTH_bf(SUPC, 0xc); // 3.04 volts
 	hri_supc_set_SMMR_SMRSTEN_bit(SUPC); // reboot on brownout
 	hri_supc_write_SMMR_SMSMPL_bf(SUPC, SUPC_SMMR_SMSMPL_CSM_Val); // continuous monitoring
 
+	// Enable L1 caches
 	SCB_EnableICache();
 	//SCB_EnableDCache(); //No... we need to sprinkle cache invalidations to do this.
 
+	// For 16 Mhz crystals, set the UTMI_CKTRIM bits as required
 	// Start doesn't do this for you, it seems.
 	#if (CONF_XOSC20M_SELECTOR == 16000000)
 	UTMI->UTMI_CKTRIM &= ~UTMI_CKTRIM_FREQ_Msk;
 	UTMI->UTMI_CKTRIM |= UTMI_CKTRIM_FREQ(UTMI_CKTRIM_FREQ_XTAL16);
 	#endif
 
+	// Create the USB serial number descriptor from the unique ID.
+	// This sort of assumes a particular observed format... a zero byte
+	// (which we ignore) followed by 15 ASCII characters. If this isn't
+	// actually what's returned as the unique ID, then this needs to change.
 	fetch_unique_id();
 	memset(usb_serial_string, 0, sizeof(usb_serial_string)); // clear it out
 	usb_serial_string[0] = sizeof(usb_serial_string); // length
 	usb_serial_string[1] = USB_DT_STRING; // descriptor type is string
 	for(int i = 0; i < 15; i++)
 	usb_serial_string[(i + 1) * 2] = unique_id[i + 1];
-	
-	
+
 	/* Initializes MCU, drivers and middleware */
 	atmel_start_init();
 
 	aes_sync_enable(&CRYPTOGRAPHY_0);
 
 	rand_sync_enable(&RAND_0);
-	
+
+	// The timer's job is to just keep a millisecond counter running for us.
+	// We use this for some timeout calculation in the MCI code and for
+	// timing button events.
 	timer_start(&TIMER_0);
 	milli_task.cb = milli_timer_cb;
 	milli_task.interval = 1;
@@ -199,5 +208,6 @@ int main(void)
 	set_state(NOT_READY);
 	
 	delay_ms(25); // Can't feed the watchdoog too soon after enabling it.
+	// The loop portion of main() is in a different method so it can go into ITCM.
 	do_main_loop();
 }
