@@ -8,11 +8,11 @@ Atmel Start. You use Atmel Start with the included .atstart file, and then overl
 the files contained here on top to make a complete, buildable firmware image.
 
 You can load that image using SAM-BA by shorting the ERASE jumper, then using
-SAM-BA over USB to load the image into place and set the GPNVM bits to 0x03 (boot
-from flash and security bit on). That will lock the firmware in and prevent debug
-access until and unless an ERASE is performed. You can also load the code in via
-SWD over the JTAG connector. Again, setting the security bit after flashing is
-recommended for production use.
+SAM-BA over USB to load the image into place and set the GPNVM bits to 0x103 (boot
+from flash, security bit on, and TCB config 2). That will lock the firmware in and
+prevent debug access until and unless an ERASE is performed. You can also load the
+code in via SWD over the JTAG connector. Again, setting the security bit after flashing
+is recommended for production use.
 
 There is also a single .java file. This is a standalone tool that will decrypt an Orthrus
 volume given two card image files. It's both a correctness proof for the firmware and
