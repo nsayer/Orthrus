@@ -22,11 +22,6 @@
 #include <Crypto.h>
 #include <MCI.h>
 
-/* use a mock buffer for clarify transfer process */
-#define MOCK_BUF_AMOUNT 6
-#define MOCK_BUF_SIZE 512
-#define MOCK_DATA_TYPE uint8_t *
-
 static enum usb_volume_state vol_state;
 
 enum xfer_dirs { IDLE, READ, WRITE };
