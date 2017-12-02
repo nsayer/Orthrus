@@ -111,6 +111,7 @@ bool prepVolume(void) {
  */
 bool initVolume(void) {
 	uint8_t blockbuf[SECTOR_SIZE];
+	uint8_t ignore[SECTOR_SIZE]; // We're going to do a sacrificial read here before each write
 	
 	// Just to make sure we don't leak any sensitive memory content.
 	memset(blockbuf, 0, sizeof(blockbuf));
@@ -122,7 +123,10 @@ bool initVolume(void) {
 	rand_sync_read_buf8(&RAND_0, blockbuf + VOL_ID_POS, VOL_ID_LENGTH + KEY_BLOCK_LENGTH + NONCE_LENGTH);
 
 	blockbuf[FLAG_POS] = 0; // card A
-
+	
+	// It's not clear why, but not performing this sacrificial read
+	// can cause the write to fail without error. redrum.
+	if (!readPhysicalBlock(false, 0, ignore)) return false;
 	if (!writePhysicalBlock(false, 0, blockbuf)) return false;
 	
 	// Leave the volume ID alone, fill only the key and nonce with new random
@@ -130,6 +134,7 @@ bool initVolume(void) {
 	
 	blockbuf[FLAG_POS] = 1; // card B
 
+	if (!readPhysicalBlock(true, 0, ignore)) return false;
 	if (!writePhysicalBlock(true, 0, blockbuf)) return false;
 
 	// clear out our temporary space
