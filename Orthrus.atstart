@@ -42,8 +42,8 @@ middlewares:
       usb_msc_bulkin_maxpksz: 64 bytes
       usb_msc_bulkout_epaddr: EndpointAddress = 0x02
       usb_msc_bulkout_maxpksz: 64 bytes
-      usb_msc_idproduct: 49344
-      usb_msc_idvender: 2889
+      usb_msc_idproduct: 61271
+      usb_msc_idvender: 1240
     definition: Atmel:USB:0.0.1::USB_Device_MSC
     functionality: USB_Device_MSC
     api: USB:Device:MSC
