@@ -32,7 +32,7 @@ static uint8_t __attribute__((section(".dtcm"))) cardswap;
  * 00-0F: magic value
  * 10-4F: volume ID
  * 50-6F: key block
- * 70-7F: nonce for the *other* card (only 50-5b actually used)
+ * 70-7F: nonce for the *other* card (only 70-7b actually used)
  * 80: flag - 0 for "A", 1 for "B"
  * 81-1FF: unused
  *
