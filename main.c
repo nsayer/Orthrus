@@ -161,7 +161,7 @@ int main(void)
 {
 	// Disable the ERASE pin. With this in place, you have to
 	// have erase actually shorted at power-up for it to do anything.
-	MATRIX->CCFG_SYSIO = CCFG_SYSIO_SYSIO12_Msk;
+	MATRIX->CCFG_SYSIO |= CCFG_SYSIO_SYSIO12_Msk;
 
 	// Turn on supply voltage monitoring.
 	hri_supc_write_SMMR_SMTH_bf(SUPC, 0xc); // 3.04 volts
