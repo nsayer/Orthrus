@@ -49,6 +49,8 @@ import java.util.Arrays;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
 public class OrthrusDecrypt {
+	private static final String CMAC_ALG_NAME = "AESCMAC";
+
 	private static class Keyblock {
 		public static final byte[] MAGIC;
 		static {
@@ -196,7 +198,7 @@ public class OrthrusDecrypt {
 				}
 				// Build the intermediate key by CMACing the two halves of the shuffled keydata
 				// and concatenating the result
-				Mac mac = Mac.getInstance("AESCMAC");
+				Mac mac = Mac.getInstance(CMAC_ALG_NAME);
 				mac.init(new SecretKeySpec(new byte[32], "AES")); // all zero key
 				mac.update(Arrays.copyOfRange(keydata, 0, keydata.length / 2));
 				byte[] intermediate1 = mac.doFinal();
@@ -207,7 +209,7 @@ public class OrthrusDecrypt {
 
 				// Now, using the intermediate key, do CMACs over the two halves of the volume ID,
 				// concatenating the result to make the volume key.
-				mac = Mac.getInstance("AESCMAC");
+				mac = Mac.getInstance(CMAC_ALG_NAME);
 				mac.init(new SecretKeySpec(intermediate, "AES"));
 				mac.update(Arrays.copyOfRange(keyblockA.getVolumeID(), 0, keyblockA.getVolumeID().length / 2));
 				intermediate1 = mac.doFinal();
